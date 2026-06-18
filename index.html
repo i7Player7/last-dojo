@@ -1,0 +1,1035 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Last Dojo - Beta 1.12 (Thematic Polish)</title>
+    <style>
+        html, body { 
+            margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; 
+            background-color: #0a0a0a; color: #eee; font-family: 'Courier New', Courier, monospace; 
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+        }
+        
+        #gameContainer {
+            position: relative; box-shadow: 0 0 50px rgba(0,0,0,1); border-radius: 8px;
+        }
+
+        canvas { 
+            background-color: #3b4d3e; border: 4px solid #555; border-radius: 8px; 
+            cursor: crosshair; image-rendering: pixelated; display: block;
+        }
+        
+        .menu-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle at 50% 30%, #3a0000 0%, #0a0a0a 70%);
+            border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 10;
+        }
+        
+        .hidden { display: none !important; }
+        
+        .menu-title { 
+            font-size: 80px; color: #d32f2f; 
+            text-shadow: 4px 4px #000, 0 0 30px #d32f2f; 
+            margin: 0 0 40px 0; letter-spacing: 10px; font-weight: 900;
+            text-align: center;
+        }
+        
+        .arcade-btn {
+            background: #111; border: 2px solid #d32f2f; padding: 12px 30px;
+            font-family: 'Courier New', Courier, monospace; font-size: 24px; font-weight: bold;
+            color: #eee; cursor: pointer; margin: 10px; box-shadow: 0 4px 0 #8a1f1f;
+            transition: all 0.1s; text-transform: uppercase; width: 350px;
+        }
+        
+        .arcade-btn:active { transform: translateY(4px); box-shadow: 0 0 0 #8a1f1f; }
+        .arcade-btn:hover { background: #d32f2f; color: #111; box-shadow: 0 4px 0 #000; }
+        
+        .pulse { animation: pulseAnim 1.5s infinite; }
+        @keyframes pulseAnim {
+            0% { transform: scale(1); box-shadow: 0 4px 0 #8a1f1f; }
+            50% { transform: scale(1.05); box-shadow: 0 4px 20px #d32f2f; border-color: #ff5555; }
+            100% { transform: scale(1); box-shadow: 0 4px 0 #8a1f1f; }
+        }
+
+        .controls { 
+            margin-top: 15px; text-align: center; background: #1a1a1a; padding: 8px 20px; 
+            border-radius: 8px; border: 1px solid #333; font-size: 0.9em;
+        }
+        kbd { background: #444; padding: 2px 6px; border-radius: 4px; color: #fff; box-shadow: 0 2px 0 #222; }
+    </style>
+</head>
+<body>
+
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="1024" height="576"></canvas>
+        
+        <div id="mainMenu" class="menu-overlay">
+            <h1 class="menu-title">LAST DOJO</h1>
+            <div id="dynamicMenuButtons" style="display: flex; flex-direction: column; align-items: center;"></div>
+            <button class="arcade-btn" onclick="openSettings()">SETTINGS</button>
+        </div>
+
+        <div id="settingsMenu" class="menu-overlay hidden">
+            <h1 class="menu-title" style="font-size: 50px;">SETTINGS</h1>
+            <button class="arcade-btn" id="audioBtn" onclick="toggleAudio()">AUDIO: ON</button>
+            <button class="arcade-btn" onclick="closeSettings()" style="margin-top: 40px;">BACK</button>
+        </div>
+
+        <div id="pauseMenu" class="menu-overlay hidden">
+            <h1 class="menu-title">PAUSED</h1>
+            <button class="arcade-btn" onclick="gameEngine.togglePause()">RESUME (P)</button>
+            <button class="arcade-btn" onclick="openSettings()">SETTINGS (O)</button>
+            <button class="arcade-btn" onclick="quitToMenu()">MAIN MENU (Q)</button>
+        </div>
+
+        <div id="gameOverMenu" class="menu-overlay hidden">
+            <h1 class="menu-title" id="goTitle">YOU DIED</h1>
+            <p id="goDesc" style="font-size: 24px; margin-bottom: 30px;">Survived to Day X</p>
+            <button class="arcade-btn" onclick="restartGame()">RESTART (SPACE)</button>
+            <button class="arcade-btn" onclick="quitToMenu()">MAIN MENU (Q)</button>
+        </div>
+
+        <div id="victoryMenu" class="menu-overlay hidden">
+            <h1 class="menu-title" style="color: #ffcc00; text-shadow: 4px 4px #000, 0 0 30px #ffcc00;">VICTORY</h1>
+            <p style="font-size: 24px; margin-bottom: 10px;">The Dojo stands. The Warlord is broken.</p>
+            <p style="font-size: 24px; color: #d32f2f; margin-bottom: 30px; font-weight: bold;">ENDLESS MODE UNLOCKED</p>
+            <button class="arcade-btn" onclick="restartGame()">CONTINUE (SPACE)</button>
+            <button class="arcade-btn" onclick="quitToMenu()">MAIN MENU (Q)</button>
+        </div>
+    </div>
+
+    <div class="controls">
+        <p>Move & Aim: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> | Sleep: <kbd>E</kbd> | Pause: <kbd>P</kbd> or <kbd>ESC</kbd></p>
+        <p>Punch: <kbd>Left Click</kbd> or <kbd>SPACE</kbd> | Spin: <kbd>Right Click</kbd> or <kbd>SHIFT</kbd> | Eat: <kbd>R</kbd></p>
+    </div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    function hideAllMenus() {
+        ['mainMenu', 'settingsMenu', 'pauseMenu', 'gameOverMenu', 'victoryMenu'].forEach(id => {
+            document.getElementById(id).classList.add('hidden');
+        });
+    }
+
+    function renderMenuButtons() {
+        const container = document.getElementById('dynamicMenuButtons');
+        container.innerHTML = ''; 
+        
+        const proBtn = document.createElement('button');
+        proBtn.className = 'arcade-btn'; proBtn.onclick = startTutorialMenu; proBtn.innerText = 'PROLOGUE';
+        
+        const surBtn = document.createElement('button');
+        surBtn.className = 'arcade-btn'; surBtn.onclick = () => startGame('SURVIVAL'); surBtn.innerText = 'SURVIVAL';
+
+        const endBtn = document.createElement('button');
+        endBtn.className = 'arcade-btn'; endBtn.onclick = () => startGame('ENDLESS'); endBtn.innerText = 'ENDLESS MODE';
+
+        const epiBtn = document.createElement('button');
+        epiBtn.className = 'arcade-btn'; epiBtn.onclick = startEpilogueMenu; epiBtn.innerText = 'EPILOGUE';
+
+        if (!localStorage.getItem('lastDojoPlayed')) {
+            proBtn.classList.add('pulse');
+            container.appendChild(proBtn);
+            container.appendChild(surBtn);
+        } else {
+            container.appendChild(surBtn);
+            container.appendChild(proBtn);
+        }
+
+        if (localStorage.getItem('lastDojoEndlessUnlocked')) container.appendChild(endBtn);
+        if (localStorage.getItem('lastDojoEpilogueUnlocked')) container.appendChild(epiBtn);
+    }
+    renderMenuButtons();
+
+    function openSettings() { 
+        hideAllMenus(); 
+        document.getElementById('settingsMenu').classList.remove('hidden'); 
+    }
+    
+    function closeSettings() { 
+        hideAllMenus();
+        if (gameEngine.paused) {
+            document.getElementById('pauseMenu').classList.remove('hidden');
+        } else if (gameEngine.state === 'START') {
+            document.getElementById('mainMenu').classList.remove('hidden'); 
+        }
+    }
+
+    function restartGame() {
+        hideAllMenus();
+        if (gameEngine.state === 'VICTORY') {
+            gameEngine.startRun('SURVIVAL');
+        } else if (gameEngine.gameMode === 'TUTORIAL') {
+            gameEngine.startTutorial();
+        } else {
+            gameEngine.startRun(gameEngine.gameMode);
+        }
+    }
+
+    function quitToMenu() {
+        hideAllMenus();
+        document.getElementById('mainMenu').classList.remove('hidden');
+        gameEngine.state = 'START';
+        gameEngine.paused = false;
+        renderMenuButtons();
+    }
+
+    class AudioEngine {
+        constructor() { this.ctx = null; this.muted = false; }
+        init() { try { if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) {} }
+        playTone(freq, type, duration, vol=0.1, slideFreq=null) {
+            if (!this.ctx || this.muted) return;
+            try {
+                let osc = this.ctx.createOscillator(); let gain = this.ctx.createGain();
+                osc.type = type; osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+                if (slideFreq) osc.frequency.exponentialRampToValueAtTime(slideFreq, this.ctx.currentTime + duration);
+                gain.gain.setValueAtTime(vol, this.ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+                osc.connect(gain); gain.connect(this.ctx.destination); osc.start(); osc.stop(this.ctx.currentTime + duration);
+            } catch(e) {}
+        }
+        playNoise(duration, vol=0.1) {
+            if (!this.ctx || this.muted) return;
+            try {
+                let bufferSize = this.ctx.sampleRate * duration; let buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+                let data = buffer.getChannelData(0); for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+                let noise = this.ctx.createBufferSource(); noise.buffer = buffer; let gain = this.ctx.createGain();
+                gain.gain.setValueAtTime(vol, this.ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+                noise.connect(gain); gain.connect(this.ctx.destination); noise.start();
+            } catch(e) {}
+        }
+        sfxSwing() { this.playTone(150, 'sine', 0.2, 0.05, 50); }
+        sfxHit() { this.playTone(100, 'square', 0.1, 0.1, 40); }
+        sfxParry() { this.playTone(800, 'triangle', 0.3, 0.1); }
+        sfxSpit() { this.playTone(400, 'sawtooth', 0.3, 0.05, 100); }
+        sfxYeet() { this.playNoise(0.5, 0.3); this.playTone(50, 'square', 0.5, 0.2, 20); }
+        sfxExplode() { this.playNoise(0.3, 0.2); }
+        sfxLevelUp() { this.playTone(400, 'sine', 0.1, 0.1, 600); setTimeout(() => this.playTone(600, 'sine', 0.3, 0.1, 800), 100); }
+        sfxLore() { this.playTone(200, 'sine', 0.5, 0.05); }
+        sfxVictory() { this.playTone(400, 'sine', 0.2, 0.1, 600); setTimeout(() => this.playTone(600, 'sine', 0.2, 0.1, 800), 200); setTimeout(() => this.playTone(800, 'sine', 0.6, 0.1, 1200), 400); }
+    }
+    const sfx = new AudioEngine();
+    function toggleAudio() { sfx.muted = !sfx.muted; document.getElementById('audioBtn').innerText = sfx.muted ? "AUDIO: OFF" : "AUDIO: ON"; }
+
+    const pal = { '.': null, 'X': '#111111', 'S': '#ffcc99', 'W': '#eeeeee', 'R': '#d32f2f', 'G': '#4caf50', 'M': '#6a1b9a', 'D': '#333333', 'B': '#5d4037', 'L': '#8d6e63', 'T': '#1b5e20', 'F': '#ef5350', 'P': '#ffffff', 'Y': '#cddc39', 'C': '#9e9e9e', 'U': '#ffeb3b', 'O': '#f57c00', 'E': '#e0e0e0', 'N': '#757575' };
+    function buildSprite(art, scale = 4) {
+        let c = document.createElement('canvas'); c.width = art[0].length * scale; c.height = art.length * scale; let cx = c.getContext('2d');
+        for (let y = 0; y < art.length; y++) for (let x = 0; x < art[y].length; x++) if (pal[art[y][x]]) { cx.fillStyle = pal[art[y][x]]; cx.fillRect(x * scale, y * scale, scale, scale); }
+        return c;
+    }
+
+    const sprDummy = buildSprite(["...XXXX...","..XLLLLX..","..XLLLLX..","..XLLLLX..","..XLLLLX..","..XLLLLX...","...XXXX...","....XX....","...XXXX...","..XXXXXX.."]);
+    const sprBox = buildSprite(["..........","..........","..XXXXXX..",".XLLLLLLX.",".XLBBLBBX.",".XLLLLLLX.",".XLBBLBBX.",".XLLLLLLX.","..XXXXXX..",".........."]);
+    const sprMeat = buildSprite(["..........","..........","..........","...XXXX...","..XFFFFX..",".XWFFFFWX.",".XWFFFFWX.","..XFFFFX...","...XXXX...",".........."], 3); 
+    const sprBandage = buildSprite(["..........","..XXXXXX..",".XPPPPPPX.",".XPPRRPPX.",".XPRRRRPX.",".XPPRRPPX.",".XPPPPPPX.","..XXXXXX..","..........",".........."], 3);
+    const sprDojo = buildSprite(["......XXX......","....XXXXXXX....","..XXRRRRRRRXX..",".XRRRRRRRRRRRX.","XRRRRRRRRRRRRRX","..XWWXXXXXWWX..","..XWWXXXXXWWX..","..XBBXXXXXBBX..","..XBBXXXXXBBX..","XXXXBXXXXXBXXXX"]);
+    const sprSun = buildSprite(["..OOOO..",".OUUUUO.","OUUUUUUO","OUUUUUUO","OUUUUUUO","OUUUUUUO",".OUUUUO.","..OOOO.."], 3);
+    const sprMoon = buildSprite(["...EEEE.","..EEENNN",".EEEN...",".EEN....",".EEN....",".EEEN...","..EEENNN","...EEEE."], 3);
+    const sprBloodMoon = buildSprite(["...FFFF.","..FFFRRR",".FFFR...","..FFR....","..FFR....",".FFFR...","..FFFRRR","...FFFF."], 3);
+
+    function drawCharacter(c, ent, frames) {
+        let isP = ent.type === 'player'; let t = ent.type; let s = (t === 'brute') ? 1.4 : (t === 'warlord' ? 2.2 : 1.0); 
+        let walk = ent.dead ? 1.2 : (ent.isMoving ? Math.sin(frames * 0.3) : 0);
+        let punchProgress = ent.dead ? 0 : (ent.isAttacking && !ent.isSpinning ? (15 - ent.attackTimer)/15 : 0); 
+        
+        let ext = 0; 
+        if (punchProgress > 0) ext = punchProgress < 0.2 ? (punchProgress / 0.2) * 16*s : (1 - (punchProgress - 0.2)/0.8) * 16*s;
+        let isBiting = (!isP && ent.biteTimer > 45 && !ent.dead); let biteLunge = isBiting ? 6*s : 0;
+
+        c.save(); c.translate(ent.x + ent.w/2, ent.y + ent.h/2); 
+        if (ent.dead) c.rotate(ent.rot); else if (ent.isSpinning) c.rotate(frames * 0.5); else if (!ent.facingRight) c.scale(-1, 1);
+        
+        let hc, bc, lc, lg;
+        if (isP) { hc = '#ffcc99'; bc = '#fff'; lc = '#ffcc99'; lg = '#eeeeee'; } 
+        else if (t === 'brute') { hc = '#6a1b9a'; bc = '#444'; lc = '#6a1b9a'; lg = '#212f3d'; } 
+        else if (t === 'warlord') { hc = '#111'; bc = '#d32f2f'; lc = '#111'; lg = '#111'; } 
+        else if (t === 'spitter') { hc = '#cddc39'; bc = '#555'; lc = '#4caf50'; lg = '#4a2311'; } 
+        else { hc = '#4caf50'; bc = '#666'; lc = '#4caf50'; lg = '#2c3e50'; } 
+        
+        c.lineWidth = 6 * s; c.lineCap = "round";
+        c.strokeStyle = lg; c.beginPath(); c.moveTo(0, 5*s); c.lineTo(walk * 10*s, 18*s); c.stroke(); c.beginPath(); c.moveTo(0, 5*s); c.lineTo(-walk * 10*s, 18*s); c.stroke(); 
+        c.strokeStyle = lc; c.beginPath(); c.moveTo(0, -6*s); 
+        if (ent.isSpinning || ent.dead) c.lineTo(20*s, -6*s); else c.lineTo(-walk * 8*s, 4*s); c.stroke();
+        
+        c.fillStyle = bc; c.fillRect(-7*s, -10*s, 14*s, 16*s);
+        if (isP) { c.fillStyle = '#000'; c.fillRect(-7*s, 2*s, 14*s, 4*s); } 
+        if (t === 'brute' || t === 'warlord') { c.fillStyle = '#666'; c.fillRect(-5*s, -8*s, 10*s, 10*s); } 
+        
+        c.fillStyle = hc; c.fillRect(-6*s + biteLunge, -22*s, 12*s, 12*s);
+        c.fillStyle = (t === 'spitter') ? '#fff' : (t === 'warlord' ? '#ff0000' : '#000'); c.fillRect(2*s + biteLunge, -20*s, 3*s, 3*s); 
+        
+        c.strokeStyle = lc; c.beginPath(); c.moveTo(0, -6*s);
+        if (ent.isSpinning || ent.dead) { c.lineTo(-20*s, -6*s); } else if (ent.isAttacking) { c.lineTo(10*s + ext, -6*s); } else if (isBiting) { c.lineTo(12*s, -15*s); } else { c.lineTo(walk * 8*s, 4*s); }
+        c.stroke(); 
+
+        if (ent.isAttacking && !ent.isSpinning && !ent.dead) { c.fillStyle = lc; c.fillRect(10*s + ext - 3*s, -9*s, 6*s, 6*s); }
+        c.restore();
+    }
+
+    class Game {
+        constructor() {
+            this.state = 'START'; this.gameMode = 'SURVIVAL'; this.paused = false; this.hitStop = 0; this.frames = 0;
+            this.keys = { w:false, a:false, s:false, d:false, e:false, ' ':false, r:false, shift:false };
+            this.mouse = { left: false, right: false }; 
+            this.eReady = true; this.rReady = true; this.shiftReady = true;
+
+            this.highScore = localStorage.getItem('lastDojoHighScore') || 0;
+            this.dojo = { x: 60, y: 260, w: 60, h: 40, hp: 300, maxHp: 300 };
+            this.dummy = { x: 180, y: 260, hits: 0, hitsNeeded: 15, level: 1 };
+            
+            this.timeTimer = 1000; this.phaseDur = 1000;
+            this.isDay = true; this.dayCount = 1; this.food = 0; this.sleepFade = 0;
+            this.isSiege = false; this.shake = 0; 
+            this.announceTime = 0; this.announceText = "";
+            this.sunriseTimer = 0;
+
+            this.tutPhase = 0; this.tutText = ""; this.tutTimer = 0;
+            this.epiPhase = 0; this.epiTimer = 0;
+
+            this.scenery = []; this.decals = []; this.damagePools = [];
+
+            this.epiLines = [
+                "The Warlord's ashes scatter. The seal holds.",
+                "Without its master, the plague will slowly starve in the sunlight.",
+                "But until the last walking corpse is reduced to ash...",
+                "...the Last Dojo stands ready.",
+                "ENDLESS MODE UNLOCKED."
+            ];
+
+            this.generateScenery(); this.resetEntities(); this.bindInput(); this.draw(); 
+        }
+
+        togglePause() {
+            if (!['PLAYING', 'TUTORIAL', 'SUNRISE'].includes(this.state)) return;
+            this.paused = !this.paused;
+            if (this.paused) {
+                hideAllMenus();
+                document.getElementById('pauseMenu').classList.remove('hidden');
+            } else {
+                hideAllMenus();
+            }
+        }
+
+        generateScenery() {
+            this.scenery = [];
+            for (let i = 0; i < 150; i++) {
+                this.scenery.push({ x: Math.random() * canvas.width, y: Math.random() * canvas.height, type: Math.random() > 0.85 ? 'rock' : 'grass', r: Math.random() * 3 + 2, variant: Math.random() > 0.5 ? 1 : 2 });
+            }
+        }
+
+        resetEntities() {
+            this.player = { 
+                x: 100, y: 260, w: 40, h: 40, size: 40, hp: 100, maxHp: 100, stamina: 100, maxStamina: 100, 
+                condition: 100, maxCondition: 100, speed: 4, facingRight: true, 
+                isAttacking: false, isSpinning: false, isMoving: false, attackTimer: 0, 
+                attackCost: 20, specialCost: 50, type: 'player', iFrames: 0, mutationGlow: 0 
+            };
+            this.enemies = []; this.boxes = []; this.loot = []; this.particles = []; this.floatTexts = []; this.projectiles = []; this.corpses = []; this.damagePools = [];
+        }
+
+        saveScore() { if (this.dayCount > this.highScore && this.gameMode === 'SURVIVAL') { this.highScore = this.dayCount; localStorage.setItem('lastDojoHighScore', this.highScore); } }
+
+        bindInput() {
+            document.addEventListener('mousedown', (e) => {
+                if (e.target !== canvas && ['PLAYING', 'TUTORIAL', 'SUNRISE'].includes(this.state)) {
+                    for (let k in this.keys) this.keys[k] = false; this.mouse.left = false; this.mouse.right = false;
+                    this.player.isMoving = false; this.player.isAttacking = false; this.player.isSpinning = false;
+                    if (!this.paused) this.togglePause();
+                }
+            });
+            window.addEventListener('blur', () => {
+                for (let k in this.keys) this.keys[k] = false; this.mouse.left = false; this.mouse.right = false;
+                this.player.isAttacking = false; this.player.isSpinning = false;
+                if(['PLAYING', 'TUTORIAL', 'SUNRISE'].includes(this.state) && !this.paused) this.togglePause();
+            });
+            canvas.addEventListener('contextmenu', e => e.preventDefault());
+            
+            window.addEventListener('keydown', (e) => { 
+                if ([' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) e.preventDefault(); 
+                let key = e.key.toLowerCase(); if (this.keys.hasOwnProperty(key)) this.keys[key] = true; 
+                
+                if (key === ' ' || key === 'enter') {
+                    if (this.state === 'GAMEOVER' || this.state === 'VICTORY') {
+                        restartGame(); this.keys[' '] = false; 
+                    }
+                }
+                if (key === 'p' || key === 'escape') { if (['PLAYING', 'TUTORIAL', 'SUNRISE'].includes(this.state)) this.togglePause(); }
+                if (key === 'q' && (this.paused || this.state === 'GAMEOVER' || this.state === 'VICTORY')) {
+                    this.paused = false; quitToMenu();
+                }
+                if (key === 'o' && this.paused) openSettings();
+            });
+            
+            window.addEventListener('keyup', (e) => { 
+                let key = e.key.toLowerCase(); if (this.keys.hasOwnProperty(key)) this.keys[key] = false;
+                if (key === 'e') this.eReady = true; if (key === 'r') this.rReady = true; if (key === 'shift') this.shiftReady = true;
+            });
+            
+            canvas.addEventListener('mousedown', (e) => {
+                if (this.state === 'GAMEOVER' || this.state === 'VICTORY') { restartGame(); return; }
+                if (this.state === 'START' || this.paused || this.player.hp <= 0 || this.dojo.hp <= 0 || this.sleepFade > 0) return; 
+                if (e.button === 0) this.mouse.left = true; if (e.button === 2) this.mouse.right = true;
+            });
+            window.addEventListener('mouseup', (e) => { if (e.button === 0) this.mouse.left = false; if (e.button === 2) this.mouse.right = false; });
+        }
+
+        rectIntersect(x1, y1, w1, h1, x2, y2, w2, h2) { return x1 < x2 + w2 && x1 + w1 > x2 && y1 < y2 + h2 && y1 + h1 > y2; }
+
+        spawnBox() {
+            let bx = (canvas.width / 2) + Math.random() * (canvas.width / 2 - 100); let by = Math.random() * (canvas.height - 200) + 100;
+            this.boxes.push({ x: bx, y: by, hp: 10 }); 
+            if (this.state === 'PLAYING') this.spawnZombie(bx, by + 40, 'straggler', bx, by); 
+            this.spawnParticles(bx + 20, by + 20, '#ffffff', 15);
+        }
+
+        spawnZombie(x = null, y = null, type = 'night', anchorX = 0, anchorY = 0) {
+            let actualType = type;
+            if (type === 'night' && this.state === 'PLAYING') {
+                let activeBrutes = this.enemies.filter(z => z.type === 'brute' && z.hp > 0).length;
+                let maxBrutesAllowed = this.dayCount >= 3 ? 1 + Math.floor((this.dayCount - 3) / 3) : 0; 
+                if (this.dayCount >= 3 && Math.random() < 0.12 && activeBrutes < maxBrutesAllowed) actualType = 'brute';
+                else if (this.dayCount >= 4 && Math.random() < 0.15) actualType = 'spitter';
+            }
+            if (type === 'warlord') actualType = 'warlord';
+            
+            let size = (actualType === 'brute') ? 50 : (actualType === 'warlord' ? 80 : 40); 
+            let baseSpeed = (actualType === 'brute') ? 0.5 : (actualType === 'warlord' ? 1.8 : 1.0 + (Math.random() * 0.5));
+            let moveSpeed = Math.min(baseSpeed + Math.min(this.dayCount * 0.05, 1.5), 3.5); 
+            if (this.isSiege && actualType !== 'brute' && actualType !== 'spitter' && actualType !== 'warlord') moveSpeed = Math.min(moveSpeed + 0.2, 3.5); 
+            
+            let hpPool = (actualType === 'brute') ? 120 : (actualType === 'spitter' ? 30 : 40);
+            if (actualType === 'warlord') hpPool = (this.dayCount >= 35) ? 4000 : 2000;
+
+            this.enemies.push({ 
+                x: x !== null ? x : (Math.random() > 0.5 ? -50 : canvas.width + 50), y: y !== null ? y : (Math.random() * (canvas.height - 150) + 80), 
+                hp: hpPool, maxHp: hpPool, speed: moveSpeed, hitTimer: 0, biteTimer: 0, shootTimer: 60, type: actualType, burning: false, isMoving: true, facingRight: true, 
+                anchorX: anchorX, anchorY: anchorY, patrolDir: 1, w: size, h: size, aggroTarget: null,
+                dojoOffsetX: (Math.random() - 0.5) * 60, dojoOffsetY: (Math.random() - 0.5) * 30
+            });
+        }
+
+        spawnParticles(x, y, color, count) { for(let i=0; i<count; i++) this.particles.push({ x: x, y: y, vx: (Math.random() - 0.5) * 10, vy: (Math.random() - 1) * 10, life: 15 + Math.random() * 15, color: color }); }
+        spawnText(x, y, text, color) { this.floatTexts.push({ x: x, y: y, text: text, color: color, life: 60 }); }
+        addDecal(x, y, color, scaleRange = 1) { this.decals.push({ x: x + (Math.random() * 20 - 10), y: y + (Math.random() * 10 - 5), s: (Math.random() * 15 + 10) * scaleRange, col: color, life: 300 }); }
+
+        launchCorpse(z, impactDirX, extremeYeet = false) {
+            let vxBase = Math.random() * 10 + (extremeYeet ? 15 : 5); let vyBase = Math.random() * 8 + (extremeYeet ? 25 : 5);
+            this.corpses.push({ x: z.x, y: z.y, w: z.w, h: z.h, type: z.type, facingRight: z.facingRight, vx: impactDirX * vxBase, vy: -vyBase, rot: 0, spin: (Math.random() - 0.5) * (extremeYeet ? 1.5 : 0.5), life: 150, dead: true });
+        }
+
+        doAttack(isSpin) {
+            if (this.player.stamina < (isSpin ? this.player.specialCost : this.player.attackCost) && !this.isSiege) return;
+            this.player.isAttacking = true; this.player.isSpinning = isSpin; this.player.attackTimer = isSpin ? 20 : 15; sfx.sfxSwing();
+            if (!this.isSiege) this.player.stamina -= isSpin ? this.player.specialCost : this.player.attackCost;
+            if (this.state === 'TUTORIAL') { if (this.tutPhase === 7 && isSpin) { this.tutPhase = 8; this.tutTimer = 60; sfx.sfxLore(); } }
+
+            let hitbox = isSpin ? { x: this.player.x - 40, y: this.player.y - 20, w: 120, h: 80 } : { x: this.player.facingRight ? this.player.x + 30 : this.player.x - 30, y: this.player.y - 10, w: 40, h: 60 };
+            if (isSpin) { this.spawnParticles(this.player.x+20, this.player.y+20, '#fff', 20); this.shake = 8; }
+            this.processHits(hitbox, isSpin ? 30 : 20, isSpin ? 60 : 20); 
+        }
+
+        processHits(hitbox, damage, knockbackDist, originX = this.player.x) {
+            if (['PLAYING', 'TUTORIAL', 'SUNRISE'].includes(this.state) || (this.state === 'TUTORIAL' && this.tutPhase >= 5)) {
+                if (this.rectIntersect(hitbox.x, hitbox.y, hitbox.w, hitbox.h, this.dummy.x, this.dummy.y, 40, 40)) {
+                    this.dummy.hits++; this.spawnParticles(this.dummy.x+20, this.dummy.y+20, '#d2b48c', 5); this.shake = Math.max(this.shake, 2); sfx.sfxHit();
+                    if (this.dummy.hits >= this.dummy.hitsNeeded) {
+                        this.dummy.hits = 0; this.dummy.level++; this.dummy.hitsNeeded = Math.floor(this.dummy.hitsNeeded * 1.5); this.player.maxStamina += 15; this.player.stamina = this.player.maxStamina;
+                        this.spawnParticles(originX+20, this.player.y+20, '#ffcc00', 30); this.spawnText(originX+20, this.player.y-20, "STAMINA UP!", "#ffcc00"); this.shake = 10; sfx.sfxLevelUp();
+                        if (this.state === 'TUTORIAL' && this.tutPhase === 6) { this.tutPhase = 7; this.tutTimer = 60; sfx.sfxLore(); }
+                    }
+                }
+            }
+
+            this.boxes.forEach(box => {
+                if (this.rectIntersect(hitbox.x, hitbox.y, hitbox.w, hitbox.h, box.x, box.y, 40, 40)) {
+                    box.hp -= damage; this.spawnParticles(box.x+20, box.y+20, '#fff', 5); sfx.sfxHit();
+                    if (box.hp <= 0) { 
+                        this.loot.push({ x: box.x, y: box.y, type: 'food' }); 
+                        if(this.state === 'TUTORIAL') this.spawnText(box.x+20, box.y-15, "MEAT DROPPED!", "#ffcc00");
+                        this.shake = Math.max(this.shake, 4); 
+                    }
+                }
+            });
+
+            this.enemies.forEach(z => {
+                if (this.rectIntersect(hitbox.x, hitbox.y, hitbox.w, hitbox.h, z.x, z.y, z.w, z.h)) {
+                    z.hp -= damage; z.hitTimer = 10; sfx.sfxHit();
+                    let direction = (z.x + (z.w/2)) > (originX + 20) ? 1 : -1;
+                    let actualKnockback = z.type === 'brute' ? knockbackDist / 4 : (this.isSiege ? knockbackDist * 2 : knockbackDist);
+                    if (z.type === 'warlord') actualKnockback = 0; 
+                    
+                    z.x += direction * actualKnockback; z.x = Math.max(0, Math.min(canvas.width - z.w, z.x));
+                    this.spawnParticles(z.x+20, z.y+20, (z.type === 'spitter' ? '#cddc39' : '#d32f2f'), 8); this.spawnText(z.x+20, z.y, `-${damage}`, "#fff"); 
+                    this.shake = Math.max(this.shake, z.type === 'brute' ? 8 : (z.type === 'warlord' ? 12 : 4)); 
+                    
+                    if (z.hp <= 0 && !z.handledDeath) {
+                        z.handledDeath = true; this.launchCorpse(z, direction); 
+                        this.addDecal(z.x + z.w/2, z.y + z.h, z.type === 'spitter' ? 'rgba(150, 200, 0, 0.4)' : 'rgba(120, 0, 0, 0.5)', z.type === 'brute' ? 1.5 : (z.type === 'warlord' ? 3.0 : 1.0));
+                        
+                        if (z.type === 'warlord') { 
+                            this.shake = 30; sfx.sfxExplode(); this.spawnParticles(z.x+40, z.y+40, '#d32f2f', 100); 
+                            if (this.gameMode === 'SURVIVAL' && this.dayCount === 35 && this.isSiege && this.state === 'PLAYING') {
+                                this.triggerSunrise();
+                            }
+                        }
+
+                        if (z.burning && damage === 30) {
+                            this.spawnParticles(z.x+20, z.y+20, '#ff9900', 40); this.spawnText(z.x+20, z.y-10, "COMBUSTION!", "#ff9900"); this.shake = Math.max(this.shake, 15); sfx.sfxExplode();
+                            this.addDecal(z.x + z.w/2, z.y + z.h, 'rgba(20, 20, 20, 0.6)', 2.0); 
+                            this.enemies.forEach(ez => { if (ez !== z && Math.hypot(ez.x - z.x, ez.y - z.y) < 120) { ez.hp -= 50; ez.burning = true; this.spawnText(ez.x+20, ez.y, "-50", "#ff9900"); } });
+                        }
+                        if (Math.random() < 0.10) this.loot.push({ x: z.x, y: z.y, type: 'bandage' });
+                    }
+                }
+            });
+        }
+
+        triggerSunrise() {
+            this.state = 'SUNRISE';
+            this.sunriseTimer = 300; 
+            this.enemies.forEach(z => z.burning = true);
+            localStorage.setItem('lastDojoEndlessUnlocked', 'true');
+            localStorage.setItem('lastDojoEpilogueUnlocked', 'true');
+        }
+
+        triggerVictory() {
+            this.state = 'VICTORY';
+            this.canRestart = false;
+            sfx.sfxVictory();
+            hideAllMenus();
+            document.getElementById('victoryMenu').classList.remove('hidden');
+            setTimeout(() => { this.canRestart = true; }, 1500);
+        }
+
+        startEpilogue() {
+            sfx.sfxVictory(); this.state = 'EPILOGUE'; this.epiPhase = 0; this.epiTimer = 180;
+        }
+
+        startRun(mode) {
+            localStorage.setItem('lastDojoPlayed', 'true'); renderMenuButtons();
+            hideAllMenus();
+            this.gameMode = mode; sfx.init(); this.canRestart = false; 
+            this.timeTimer = 1000; this.isDay = true; this.dayCount = 1; this.food = 0; this.sleepFade = 0;
+            this.isSiege = false; this.shake = 0; this.paused = false; this.announceTimer = 0; this.hitStop = 0;
+            this.dojo.hp = this.dojo.maxHp; this.dummy.hits = 0; this.dummy.level = 1; this.dummy.hitsNeeded = 15;
+            this.frames = 0; this.decals = []; this.damagePools = []; this.generateScenery(); this.resetEntities();
+            this.state = 'PLAYING';
+            for(let i=0; i<3; i++) this.spawnBox(); 
+        }
+
+        startTutorial() {
+            localStorage.setItem('lastDojoPlayed', 'true'); renderMenuButtons();
+            hideAllMenus();
+            sfx.init(); this.canRestart = false;
+            this.gameMode = 'TUTORIAL';
+            this.isDay = true; this.food = 0; this.sleepFade = 0; this.isSiege = false; this.shake = 0; this.paused = false; this.hitStop = 0;
+            this.dojo.hp = this.dojo.maxHp; this.dummy.hits = 0;
+            this.frames = 0; this.decals = []; this.damagePools = []; this.generateScenery(); this.resetEntities();
+            this.state = 'TUTORIAL'; this.tutPhase = 0; this.tutTimer = 180;
+            this.player.hp = 1000; this.player.maxHp = 1000; this.player.stamina = 100; this.player.condition = 100;
+            this.dummy.hitsNeeded = 5; 
+        }
+
+        updateTutorialLogic() {
+            if (this.tutTimer > 0) this.tutTimer--;
+            switch(this.tutPhase) {
+                case 0: this.tutText = "For centuries, our bloodline guarded the seal beneath this Dojo."; if (this.tutTimer <= 0) { this.tutPhase = 1; this.tutTimer = 180; } break;
+                case 1: this.tutText = "But time weakened the earth. The plague seeped out, raising the dead..."; if (this.tutTimer <= 0) { this.tutPhase = 2; this.tutTimer = 180; } break;
+                case 2: this.tutText = "...and feeding a Warlord deep below."; if (this.tutTimer <= 0) { this.tutPhase = 3; this.tutTimer = 180; } break;
+                case 3: this.tutText = "You are the last Master. You alone keep the Dojo standing."; if (this.tutTimer <= 0) { this.tutPhase = 4; this.tutTimer = 180; } break;
+                case 4: this.tutText = "The dead burn in the sunlight. But the nights are long."; if (this.tutTimer <= 0) { this.tutPhase = 5; this.tutTimer = 30; } break;
+                case 5: this.tutText = "Use W, A, S, D to move."; if (this.tutTimer <= 0 && this.player.isMoving) { this.tutPhase = 6; this.tutTimer = 30; sfx.sfxLore(); } break;
+                case 6: this.tutText = "Training increases Max Stamina. Level it up. (LEFT CLICK to Punch)"; break;
+                case 7: this.tutText = "When surrounded, the Hurricane creates space. (RIGHT CLICK to Spin)"; break;
+                case 8: this.tutText = "Attacks drain Stamina (Blue). Without it, you are defenseless. Exhaust it."; if (this.player.stamina <= 30) { this.tutPhase = 9; this.tutTimer = 120; sfx.sfxLore(); this.player.condition = 10; } break;
+                case 9: this.tutText = "Notice how slow Stamina recovers? It depends on your Condition (Yellow)."; if (this.tutTimer <= 0) { if (this.boxes.length === 0) this.spawnBox(); this.tutPhase = 10; this.tutTimer = 60; sfx.sfxLore(); } break;
+                case 10: this.tutText = "You are starving. Break the crate to scavenge meat."; if (this.food > 0) { this.tutPhase = 11; this.tutTimer = 60; sfx.sfxLore(); } break;
+                case 11: this.tutText = "Eat the meat to restore your Condition. (Press R to Eat)"; if (this.keys.r && this.rReady) { this.food--; this.player.condition = 100; this.spawnText(this.player.x+20, this.player.y, "+FOOD", "#44aa44"); this.rReady = false; this.tutPhase = 12; this.tutTimer = 60; sfx.sfxLore(); this.player.hp = 500; } break;
+                case 12: this.tutText = "Rest near the Dojo to heal HP (Red). (Press E near Dojo)"; if (this.keys.e && this.eReady && Math.abs(this.player.x - this.dojo.x) < 60 && Math.abs(this.player.y - this.dojo.y) < 60) { this.player.hp = 1000; this.sleepFade = 60; this.eReady = false; this.tutPhase = 13; this.tutTimer = 120; sfx.sfxLore(); } break;
+                case 13: 
+                    this.tutText = "Night falls. The dead hunt the living! Survive!"; 
+                    this.isDay = false; this.isSiege = false; 
+                    if (this.tutTimer === 60) { this.spawnZombie(null, null, 'night'); this.spawnZombie(null, null, 'night'); } 
+                    if (this.tutTimer <= 0 && this.enemies.length === 0) { this.tutPhase = 14; this.tutTimer = 180; sfx.sfxLore(); } 
+                    break;
+                case 14: this.tutText = "But every 7th night, a Blood Moon rises!"; if (this.tutTimer <= 0) { this.tutPhase = 15; this.tutTimer = 180; sfx.sfxLore(); } break;
+                case 15: 
+                    this.tutText = "They ignore you to break the seal! Defend the Dojo! (INFINITE STAMINA)"; 
+                    this.isSiege = true;
+                    if (this.tutTimer === 120) { this.spawnZombie(null, null, 'night'); this.spawnZombie(null, null, 'night'); } 
+                    if (this.tutTimer <= 0 && this.enemies.length === 0) { 
+                        this.tutPhase = 16; this.tutTimer = 180; sfx.sfxLore(); 
+                        this.player.mutationGlow = 180; this.player.maxHp += 50; this.player.hp = this.player.maxHp; 
+                        sfx.sfxLevelUp(); this.spawnText(this.player.x+20, this.player.y-40, "MUTATION: MAX HP UP!", "#d32f2f"); 
+                        this.isSiege = false; this.isDay = true;
+                    } 
+                    break;
+                case 16: this.tutText = "...surviving its radiation mutates your blood, making you stronger."; if (this.tutTimer <= 0) { this.tutPhase = 17; this.tutTimer = 180; sfx.sfxLore(); } break;
+                case 17: this.tutText = "Your awakening is complete. Now, survive the true nightmare."; if (this.tutTimer <= 0) { localStorage.setItem('lastDojoPrologueDone', 'true'); document.getElementById('mainMenu').classList.remove('hidden'); this.state = 'START'; renderMenuButtons(); } break;
+            }
+        }
+
+        updateEpilogueLogic() {
+            if (this.epiTimer > 0) this.epiTimer--;
+            if (this.epiTimer <= 0) {
+                if (this.epiPhase < this.epiLines.length - 1) {
+                    this.epiPhase++; this.epiTimer = 180;
+                } else {
+                    document.getElementById('mainMenu').classList.remove('hidden'); this.state = 'START'; renderMenuButtons();
+                }
+            }
+        }
+
+        update() {
+            if (this.state === 'EPILOGUE') { this.updateEpilogueLogic(); return; }
+            if (!['PLAYING', 'TUTORIAL', 'SUNRISE'].includes(this.state)) return;
+            if (this.sleepFade > 0) { this.sleepFade--; if (this.sleepFade === 30 && this.state === 'PLAYING') this.timeTimer = 0; return; }
+            if (this.hitStop > 0) { this.hitStop--; return; } 
+
+            this.player.isMoving = (this.keys.w || this.keys.a || this.keys.s || this.keys.d);
+            this.frames++;
+            
+            if (this.player.iFrames > 0) this.player.iFrames--;
+            if (this.player.mutationGlow > 0) this.player.mutationGlow--; 
+
+            this.decals.forEach(d => d.life--); this.decals = this.decals.filter(d => d.life > 0);
+            
+            this.damagePools.forEach(dp => {
+                dp.life--;
+                if (this.player.iFrames <= 0 && Math.hypot((this.player.x+20) - dp.x, (this.player.y+20) - dp.y) < 40) {
+                    this.player.hp = Math.max(0, this.player.hp - 1.5); this.shake = Math.max(this.shake, 2);
+                }
+            });
+            this.damagePools = this.damagePools.filter(dp => dp.life > 0);
+
+            if (this.isSiege && ['PLAYING', 'SUNRISE', 'TUTORIAL'].includes(this.state)) {
+                this.player.stamina = this.player.maxStamina; this.player.condition = this.player.maxCondition;
+            }
+
+            if (this.state === 'SUNRISE') {
+                this.sunriseTimer--;
+                this.enemies.forEach(z => { 
+                    z.burning = true; 
+                    z.hp -= (z.type === 'warlord' ? 50 : 3); 
+                }); 
+                if (this.sunriseTimer <= 0) {
+                    this.triggerVictory();
+                }
+            } else if (this.state === 'TUTORIAL') {
+                this.updateTutorialLogic();
+            } else {
+                this.timeTimer--; 
+                if (!this.isSiege) this.player.condition = Math.max(0, this.player.condition - 0.02);
+                
+                if (this.timeTimer <= 0) { 
+                    if (this.gameMode === 'SURVIVAL' && this.dayCount === 35 && !this.isDay) {
+                        this.triggerSunrise(); return;
+                    }
+
+                    this.timeTimer = this.phaseDur; this.isDay = !this.isDay; this.announceTimer = 180; 
+                    if (this.isDay) {
+                        this.dayCount++; this.isSiege = false; this.announceText = "DAY " + this.dayCount;
+                        
+                        if ((this.dayCount - 1) % 7 === 0 && (this.dayCount - 1) > 0) {
+                            this.player.mutationGlow = 180; sfx.sfxLevelUp();
+                            if (this.player.maxHp < 200) {
+                                this.player.maxHp += 50; this.player.hp = this.player.maxHp;
+                                this.spawnText(this.player.x+20, this.player.y-40, "MUTATION: MAX HP UP!", "#d32f2f");
+                            } else {
+                                this.player.hp = this.player.maxHp;
+                                this.spawnText(this.player.x+20, this.player.y-40, "MUTATION: LIMIT REACHED", "#d32f2f");
+                                this.spawnText(this.player.x+20, this.player.y-20, "FULL HEAL", "#44aa44");
+                            }
+                        }
+
+                        this.enemies.forEach(z => { if (z.type !== 'straggler') z.burning = true; });
+                        for(let i=0; i<3; i++) this.spawnBox(); 
+                        this.loot = []; this.projectiles = []; this.corpses = []; this.damagePools = [];
+                    } else {
+                        this.boxes = []; this.enemies.forEach(z => { if (z.type === 'straggler') z.type = 'night'; });
+                        if (this.dayCount % 7 === 0) { 
+                            this.isSiege = true; this.dojo.hp = this.dojo.maxHp; this.announceText = "BLOOD MOON SIEGE"; 
+                            
+                            if (this.dayCount === 14 || this.dayCount === 28) {
+                                this.spawnZombie(canvas.width/2 - 40, canvas.height + 50, 'warlord'); 
+                            } else if (this.dayCount === 35 && this.gameMode === 'SURVIVAL') {
+                                this.spawnZombie(canvas.width/2 - 40, canvas.height + 50, 'warlord'); 
+                            } else if (this.gameMode === 'ENDLESS' && this.dayCount >= 35) {
+                                let warlordCount = Math.floor(this.dayCount / 14);
+                                for(let w=0; w<warlordCount; w++) this.spawnZombie(null, canvas.height + 50, 'warlord');
+                            }
+
+                        } else {
+                            this.announceText = "NIGHT " + this.dayCount;
+                        }
+                    }
+                }
+                if (this.announceTimer > 0) this.announceTimer--;
+
+                let activeZombies = this.enemies.filter(z => (z.type !== 'straggler' && z.type !== 'warlord') && z.hp > 0).length;
+                let maxZombies = this.isSiege ? 15 : Math.min(25, 8 + (this.dayCount * 2)); 
+                let spawnRate = this.isSiege ? 0.05 : 0.02 + (this.dayCount * 0.005);
+                if (!this.isDay && activeZombies < maxZombies && Math.random() < spawnRate) this.spawnZombie(null, null, 'night');
+            }
+
+            let currentAttackCost = this.isSiege ? 0 : this.player.attackCost; let currentSpecialCost = this.isSiege ? 0 : this.player.specialCost;
+            if ((this.keys[' '] || this.mouse.left) && !this.player.isAttacking && this.player.stamina >= currentAttackCost) this.doAttack(false);
+            if ((this.keys.shift || this.mouse.right) && !this.player.isAttacking && this.player.stamina >= currentSpecialCost) { this.doAttack(true); this.shiftReady = false; }
+            
+            if (this.keys.r && this.rReady && this.state !== 'TUTORIAL' && !this.isSiege) { 
+                if (this.food > 0 && this.player.condition < 100) {
+                    this.food--; this.player.condition = Math.min(100, this.player.condition + 30); 
+                    let healAmount = Math.min(this.player.maxHp - this.player.hp, 5); this.player.hp += healAmount;
+                    if (healAmount > 0) this.spawnText(this.player.x+20, this.player.y, `+${healAmount}`, "#44aa44"); else this.spawnText(this.player.x+20, this.player.y, "YUM!", "#ffcc00"); 
+                }
+                this.rReady = false; 
+            }
+
+            if (this.keys.a && !this.keys.d) { this.player.x -= this.player.speed; this.player.facingRight = false; }
+            if (this.keys.d && !this.keys.a) { this.player.x += this.player.speed; this.player.facingRight = true; }
+            if (this.keys.w && !this.keys.s) this.player.y -= this.player.speed;
+            if (this.keys.s && !this.keys.w) this.player.y += this.player.speed;
+            this.player.x = Math.max(0, Math.min(canvas.width - this.player.size, this.player.x)); this.player.y = Math.max(80, Math.min(canvas.height - this.player.size, this.player.y)); 
+
+            let regenRate = 0.1 + (this.player.condition / 100) * 1.5; if (!this.player.isAttacking && this.player.stamina < this.player.maxStamina && !this.isSiege) this.player.stamina += regenRate;
+
+            if (this.keys.e && this.eReady && this.isDay && Math.abs(this.player.x - this.dojo.x) < 60 && Math.abs(this.player.y - this.dojo.y) < 60 && this.state !== 'TUTORIAL') {
+                let timeRemainingPct = this.timeTimer / this.phaseDur; 
+                let healAmount = Math.floor(this.player.maxHp * (0.1 + (timeRemainingPct * 0.4))); 
+                this.player.condition = this.player.maxCondition; this.player.hp = Math.min(this.player.maxHp, this.player.hp + healAmount);
+                this.spawnParticles(this.player.x+15, this.player.y+15, '#44aa44', 15); this.spawnText(this.player.x+20, this.player.y, `+${healAmount} HP`, "#44aa44");
+                this.sleepFade = 60; this.eReady = false; 
+            }
+
+            this.loot.forEach((item, index) => {
+                if (this.rectIntersect(this.player.x, this.player.y, 40, 40, item.x, item.y, 30, 30)) {
+                    if (item.type === 'bandage') { 
+                        let heal = Math.min(this.player.maxHp - this.player.hp, 20); this.player.hp += heal; 
+                        this.spawnParticles(this.player.x+15, this.player.y+15, '#44aa44', 15); if (heal > 0) this.spawnText(this.player.x+20, this.player.y, `+${heal}`, "#44aa44");
+                    } else if (item.type === 'food') this.food++;
+                    this.loot.splice(index, 1); 
+                }
+            });
+
+            if (this.player.isAttacking) { this.player.attackTimer--; if (this.player.attackTimer <= 0) { this.player.isAttacking = false; this.player.isSpinning = false; } }
+
+            this.projectiles.forEach((p, index) => {
+                p.x += p.vx; p.y += p.vy; p.life--; let exploded = false;
+                if (this.player.isAttacking && this.player.isSpinning && !p.reflected) {
+                    if (Math.hypot((this.player.x + 20) - p.x, (this.player.y + 20) - p.y) < 70) {
+                        p.vx *= -1.5; p.vy *= -1.5; p.reflected = true; p.life = 250;
+                        this.spawnParticles(p.x, p.y, '#00ffff', 10); this.spawnText(p.x, p.y-10, "PARRY!", "#00ffff"); this.shake = Math.max(this.shake, 5); this.hitStop = 3; sfx.sfxParry();
+                    }
+                }
+                let pHurtbox = { x: this.player.x + 10, y: this.player.y + 5, w: 20, h: 30 };
+                if (!p.reflected && this.player.iFrames <= 0 && this.rectIntersect(p.x - 5, p.y - 5, 10, 10, pHurtbox.x, pHurtbox.y, pHurtbox.w, pHurtbox.h)) exploded = true;
+                if (!exploded) { this.enemies.forEach(z => { if (z !== p.owner && this.rectIntersect(p.x - 5, p.y - 5, 10, 10, z.x, z.y, z.w, z.h)) exploded = true; }); }
+                if (p.life <= 0) exploded = true; 
+
+                if (exploded) {
+                    p.life = 0; this.spawnParticles(p.x, p.y, p.reflected ? '#00ffff' : '#cddc39', 20); sfx.sfxExplode();
+                    this.addDecal(p.x, p.y, p.reflected ? 'rgba(0, 255, 255, 0.3)' : 'rgba(150, 200, 0, 0.4)', 1.5);
+                    
+                    if (!p.reflected) { this.damagePools.push({ x: p.x, y: p.y, life: 240 }); }
+
+                    if (Math.hypot((this.player.x + 20) - p.x, (this.player.y + 20) - p.y) < 50 && this.player.iFrames <= 0) {
+                        this.player.hp = Math.max(0, this.player.hp - 10); this.player.condition = Math.max(0, this.player.condition - 5); 
+                        this.spawnText(this.player.x+20, this.player.y, "-10 (Toxic)", "#cddc39"); this.shake = Math.max(this.shake, 5); this.player.iFrames = 45;
+                    }
+                    this.enemies.forEach(z => {
+                        if (Math.hypot((z.x + z.w/2) - p.x, (z.y + z.h/2) - p.y) < 60) {
+                            let dmg = p.reflected ? 60 : 20; z.hp -= dmg; this.spawnText(z.x + (z.w/2), z.y, `-${dmg}`, p.reflected ? "#00ffff" : "#cddc39");
+                            if (!p.reflected && p.owner && p.owner !== z && p.owner.hp > 0) { z.aggroTarget = p.owner; }
+                            if(z.hp <= 0 && !z.handledDeath) { 
+                                z.handledDeath = true; this.launchCorpse(z, p.vx > 0 ? 1 : -1); 
+                                this.addDecal(z.x + z.w/2, z.y + z.h, z.type === 'spitter' ? 'rgba(150, 200, 0, 0.4)' : 'rgba(120, 0, 0, 0.5)', z.type === 'brute' ? 1.5 : 1.0);
+                            }
+                        }
+                    });
+                }
+            });
+
+            this.enemies.forEach(z => {
+                if (z.burning) { 
+                    z.hp -= (z.type === 'warlord' ? 50 : 3); 
+                    if (Math.random() < 0.2) this.spawnParticles(z.x+20, z.y+20, '#ff9900', 1); 
+                    if (z.hp <= 0 && !z.handledDeath) { 
+                        z.handledDeath = true;
+                        if (z.type === 'warlord') {
+                            this.shake = 30; sfx.sfxExplode(); this.spawnParticles(z.x+40, z.y+40, '#ff9900', 100);
+                        } else {
+                            this.spawnParticles(z.x+20, z.y+20, '#444444', 30); sfx.sfxHit(); 
+                        }
+                        this.addDecal(z.x + z.w/2, z.y + z.h, 'rgba(20, 20, 20, 0.6)', z.type === 'warlord' ? 3.0 : 1.5);
+                    } 
+                    return;
+                }
+                if (z.hp <= 0) return;
+                if (z.biteTimer > 0) z.biteTimer--; if (z.hitTimer > 0) z.hitTimer--;
+                else {
+                    let isBloodMoonDrone = (this.isSiege && z.type !== 'spitter' && z.type !== 'warlord');
+                    
+                    let targetX = isBloodMoonDrone ? this.dojo.x + 30 + z.dojoOffsetX : this.player.x; 
+                    let targetY = isBloodMoonDrone ? this.dojo.y + 20 + z.dojoOffsetY : this.player.y;
+                    
+                    if (z.aggroTarget) { if (z.aggroTarget.hp <= 0) z.aggroTarget = null; else { targetX = z.aggroTarget.x + z.aggroTarget.w/2; targetY = z.aggroTarget.y + z.aggroTarget.h/2; } }
+                    let distToTarget = Math.hypot(targetX - z.x, targetY - z.y); let isOnScreen = (z.x > 0 && z.x + z.w < canvas.width && z.y > 0 && z.y + z.h < canvas.height); let oldX = z.x, oldY = z.y;
+
+                    if (z.type === 'brute' && z.aggroTarget && z.aggroTarget.type === 'spitter') {
+                        if (distToTarget < 60 && z.biteTimer <= 0) {
+                            z.biteTimer = 60; z.aggroTarget.hp = 0; z.aggroTarget.handledDeath = true; this.hitStop = 4; sfx.sfxYeet();
+                            this.launchCorpse(z.aggroTarget, z.facingRight ? 1 : -1, true); 
+                            this.spawnText(z.x + 25, z.y - 20, "YEET!", "#ffcc00"); this.shake = Math.max(this.shake, 15); z.aggroTarget = null;
+                        }
+                    }
+
+                    if (z.type === 'spitter') {
+                        if (z.shootTimer > 0) z.shootTimer--;
+                        if (distToTarget > 300 || !isOnScreen) { 
+                            if (z.x < targetX) z.x += z.speed; if (z.x > targetX) z.x -= z.speed; if (z.y < targetY) z.y += z.speed; if (z.y > targetY) z.y -= z.speed;
+                        } else {
+                            if (z.shootTimer <= 0) {
+                                let aimY = this.isSiege ? targetY + 20 : targetY;
+                                let angle = Math.atan2(aimY - (z.y + 20), targetX - (z.x + 20));
+                                this.projectiles.push({ x: z.x + 20, y: z.y + 20, vx: Math.cos(angle) * 4, vy: Math.sin(angle) * 4, life: 250, owner: z, reflected: false });
+                                z.shootTimer = 120; sfx.sfxSpit();
+                            }
+                        }
+                        z.facingRight = targetX > z.x;
+                    } 
+                    else if (z.type === 'straggler' && !z.aggroTarget) {
+                        let distToBox = Math.hypot(z.anchorX - z.x, z.anchorY - z.y);
+                        if (distToTarget > 150 || distToBox > 250) {
+                            z.x += (z.speed * 0.5) * z.patrolDir;
+                            if (z.x > z.anchorX + 40) z.patrolDir = -1; if (z.x < z.anchorX - 40) z.patrolDir = 1;
+                            if (z.y < z.anchorY) z.y += 0.5; if (z.y > z.anchorY) z.y -= 0.5; z.facingRight = z.patrolDir > 0;
+                        } else {
+                            if (z.x < targetX) z.x += z.speed; if (z.x > targetX) z.x -= z.speed; if (z.y < targetY) z.y += z.speed; if (z.y > targetY) z.y -= z.speed; z.facingRight = targetX > z.x;
+                        }
+                    } else {
+                        if (z.x < targetX) z.x += z.speed; if (z.x > targetX) z.x -= z.speed; if (z.y < targetY) z.y += z.speed; if (z.y > targetY) z.y -= z.speed; z.facingRight = targetX > z.x;
+                    }
+
+                    z.isMoving = (z.x !== oldX || z.y !== oldY);
+
+                    let zBox = { x: z.x + 10, y: z.y + 10, w: z.w - 20, h: z.h - 20 }; let pHurtbox = { x: this.player.x + 10, y: this.player.y + 5, w: 20, h: 30 };
+                    
+                    if (!z.burning && !isBloodMoonDrone && z.biteTimer <= 0 && this.player.iFrames <= 0 && this.rectIntersect(zBox.x, zBox.y, zBox.w, zBox.h, pHurtbox.x, pHurtbox.y, pHurtbox.w, pHurtbox.h)) {
+                        let dmg = z.type === 'brute' ? 20 : (z.type === 'warlord' ? 40 : 10); 
+                        this.player.hp = Math.max(0, this.player.hp - dmg); 
+                        z.biteTimer = 60; this.player.iFrames = 45; 
+                        this.spawnParticles(this.player.x+20, this.player.y+20, '#d32f2f', 10); this.spawnText(this.player.x+20, this.player.y, `-${dmg}`, "#d32f2f"); this.shake = z.type === 'brute' ? 12 : (z.type === 'warlord' ? 20 : 6); sfx.sfxHit();
+                        
+                        if (z.type !== 'brute' && z.type !== 'warlord') {
+                            this.player.x = Math.max(0, Math.min(canvas.width - this.player.size, this.player.x + ((this.player.x < z.x) ? -15 : 15)));
+                        }
+                    }
+
+                    if (!z.burning && isBloodMoonDrone && z.biteTimer <= 0 && this.rectIntersect(zBox.x, zBox.y, zBox.w, zBox.h, this.dojo.x - 20, this.dojo.y - 20, this.dojo.w + 40, this.dojo.h + 40) && ['PLAYING', 'TUTORIAL'].includes(this.state)) {
+                        this.dojo.hp = Math.max(0, this.dojo.hp - 5); z.biteTimer = 60; this.spawnParticles(this.dojo.x+30, this.dojo.y+20, '#1b5e20', 5); this.spawnText(this.dojo.x+30, this.dojo.y, "-5", "#ffcc00"); this.shake = 3; sfx.sfxHit();
+                    }
+                }
+            });
+
+            this.corpses.forEach(c => { c.x += c.vx; c.y += c.vy; c.vy += 0.5; c.rot += c.spin; if (c.y > canvas.height - 40) { c.y = canvas.height - 40; c.vy *= -0.4; c.vx *= 0.5; c.spin *= 0.5; } c.life--; });
+            if (this.shake > 0) this.shake *= 0.9; if (this.shake < 0.5) this.shake = 0;
+            this.particles.forEach(p => { p.x += p.vx; p.y += p.vy; p.vy += 0.5; if(p.y > canvas.height) p.vy *= -0.5; p.life--; });
+            this.floatTexts.forEach(t => { t.y -= 1; t.life--; });
+
+            this.projectiles = this.projectiles.filter(p => p.life > 0); this.boxes = this.boxes.filter(b => b.hp > 0); 
+            this.enemies = this.enemies.filter(z => z.hp > 0); this.corpses = this.corpses.filter(c => c.life > 0);
+            this.particles = this.particles.filter(p => p.life > 0); this.floatTexts = this.floatTexts.filter(t => t.life > 0);
+
+            if ((this.player.hp <= 0 || this.dojo.hp <= 0) && ['PLAYING', 'SUNRISE', 'TUTORIAL'].includes(this.state)) {
+                let wasTutorial = (this.state === 'TUTORIAL');
+                this.saveScore(); 
+                this.state = 'GAMEOVER'; 
+                this.canRestart = false;
+                
+                document.getElementById('goTitle').innerText = this.dojo.hp <= 0 ? "THE DOJO FELL" : "YOU DIED";
+                document.getElementById('goDesc').innerText = wasTutorial ? "Tutorial Failed" : `Survived to Day ${this.dayCount}`;
+                hideAllMenus();
+                document.getElementById('gameOverMenu').classList.remove('hidden');
+
+                setTimeout(() => { this.canRestart = true; }, 1000);
+            }
+        }
+
+        drawShadow(x, y, w, h = w) { ctx.fillStyle = "rgba(0,0,0,0.4)"; ctx.beginPath(); ctx.ellipse(x + w/2, y + h - 5, w/2, 6, 0, 0, Math.PI*2); ctx.fill(); }
+
+        drawLighting() {
+            let r=0, g=0, b=0, a=0;
+            if (this.state === 'TUTORIAL') {
+                if (this.isDay) { r=255; g=120; b=0; a=0.2; } else if (this.isSiege) { r=180; g=0; b=0; a=0.5; } else { r=0; g=0; b=40; a=0.6; }
+            } else if (this.state === 'SUNRISE') {
+                let pct = 1 - (this.sunriseTimer / 300);
+                r = 180 + (75 * pct); g = 180 * pct; b = 0; a = 0.5 - (0.3 * pct);
+            } else {
+                let pct = this.timeTimer / this.phaseDur; 
+                if (this.isDay) {
+                    if (pct > 0.75) { let f = (pct - 0.75) / 0.25; r=255; g=120; b=0; a = f * 0.4; } 
+                    else if (pct < 0.25) { let f = (0.25 - pct) / 0.25; r=255; g=60; b=0; a = f * 0.5; } 
+                } else {
+                    if (this.isSiege) { r=180; g=0; b=0; a=0.5; } 
+                    else {
+                        if (pct > 0.75) { let f = (pct - 0.75) / 0.25; r = 255 * f; g = 60 * f; b = 40 + (f * -40); a = 0.6 - (f * 0.1); } 
+                        else if (pct < 0.25) { let f = (0.25 - pct) / 0.25; r = 255 * f; g = 120 * f; b = 40 + (f * -40); a = 0.6 - (f * 0.2); } 
+                        else { r=0; g=0; b=40; a=0.6; }
+                    }
+                }
+            }
+            let grad = ctx.createRadialGradient(canvas.width/2, canvas.height/2, 200, canvas.width/2, canvas.height/2, canvas.width);
+            grad.addColorStop(0, `rgba(${Math.floor(r)}, ${Math.floor(g)}, ${Math.floor(b)}, ${a * 0.2})`);
+            grad.addColorStop(1, `rgba(${Math.floor(r)}, ${Math.floor(g)}, ${Math.floor(b)}, ${a})`);
+            ctx.fillStyle = grad; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.save();
+            if (this.shake > 0 && !this.paused) { let dx = (Math.random() - 0.5) * this.shake; let dy = (Math.random() - 0.5) * this.shake; ctx.translate(dx, dy); }
+
+            ctx.fillStyle = "rgba(0, 0, 0, 0.15)"; ctx.beginPath(); ctx.ellipse(this.dojo.x + 30, this.dojo.y + 25, 80, 40, 0, 0, Math.PI*2); ctx.fill(); 
+
+            this.decals.forEach(d => { ctx.globalAlpha = d.life / 300; ctx.fillStyle = d.col; ctx.beginPath(); ctx.ellipse(d.x, d.y, d.s, d.s * 0.5, 0, 0, Math.PI*2); ctx.fill(); });
+            ctx.globalAlpha = 1.0; 
+
+            this.damagePools.forEach(dp => {
+                ctx.globalAlpha = dp.life / 240; ctx.fillStyle = "#cddc39"; 
+                ctx.beginPath(); ctx.ellipse(dp.x, dp.y, 40, 20, 0, 0, Math.PI*2); ctx.fill();
+            });
+            ctx.globalAlpha = 1.0; 
+
+            this.scenery.forEach(s => {
+                if(s.type === 'grass') { ctx.fillStyle = s.variant === 1 ? '#4caf50' : '#8bc34a'; ctx.globalAlpha = 0.3; ctx.fillRect(s.x, s.y, 4, 4); ctx.fillRect(s.x + 4, s.y - 4, 4, 4); ctx.globalAlpha = 1.0; } 
+                else if (s.type === 'rock') { ctx.fillStyle = s.variant === 1 ? '#555' : '#777'; ctx.beginPath(); ctx.ellipse(s.x, s.y, s.r * 1.5, s.r, 0, 0, Math.PI*2); ctx.fill(); }
+            });
+
+            ctx.fillStyle = "rgba(0,0,0,0.4)"; ctx.fillRect(this.dojo.x + 8, this.dojo.y + this.dojo.h - 5, 44, 10);
+            this.drawShadow(this.dummy.x, this.dummy.y, 40); this.boxes.forEach(b => this.drawShadow(b.x, b.y, 40)); this.enemies.forEach(z => { if(!z.burning) this.drawShadow(z.x, z.y, z.w, z.h); }); this.drawShadow(this.player.x, this.player.y, 40);
+
+            ctx.drawImage(sprDojo, this.dojo.x, this.dojo.y);
+            
+            if (this.dojo.hp < this.dojo.maxHp * 0.5) {
+                ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(this.dojo.x+20, this.dojo.y+15); ctx.lineTo(this.dojo.x+25, this.dojo.y+25); ctx.lineTo(this.dojo.x+15, this.dojo.y+35); ctx.stroke();
+                if (this.dojo.hp < this.dojo.maxHp * 0.25) { ctx.beginPath(); ctx.moveTo(this.dojo.x+40, this.dojo.y+10); ctx.lineTo(this.dojo.x+35, this.dojo.y+20); ctx.lineTo(this.dojo.x+45, this.dojo.y+30); ctx.stroke(); if(Math.random()<0.1) this.spawnParticles(this.dojo.x+30, this.dojo.y+20, '#ff5500', 1); }
+            }
+
+            if (this.isSiege && this.dojo.hp > 0 && this.state !== 'TUTORIAL') {
+                ctx.fillStyle = "#222"; ctx.fillRect(this.dojo.x, this.dojo.y - 15, 60, 6); ctx.fillStyle = "#ffcc00"; ctx.fillRect(this.dojo.x, this.dojo.y - 15, (this.dojo.hp/this.dojo.maxHp)*60, 6); ctx.strokeStyle = "#000"; ctx.strokeRect(this.dojo.x, this.dojo.y - 15, 60, 6);
+            }
+
+            ctx.drawImage(sprDummy, this.dummy.x, this.dummy.y);
+            
+            this.loot.forEach(item => { ctx.drawImage(item.type === 'food' ? sprMeat : sprBandage, item.x + 5, item.y + 5); });
+            this.boxes.forEach(b => ctx.drawImage(sprBox, b.x, b.y));
+            this.projectiles.forEach(p => { ctx.fillStyle = p.reflected ? '#00ffff' : '#cddc39'; ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI*2); ctx.fill(); ctx.shadowBlur = 10; ctx.shadowColor = p.reflected ? '#00ffff' : '#cddc39'; ctx.fill(); ctx.shadowBlur = 0; });
+            this.corpses.forEach(c => { ctx.globalAlpha = c.life / 100; drawCharacter(ctx, c, this.frames); ctx.globalAlpha = 1.0; });
+            this.enemies.forEach(z => { 
+                if (z.burning) ctx.globalAlpha = Math.max(0, z.hp / z.maxHp); 
+                drawCharacter(ctx, z, this.frames); 
+                if (z.hitTimer > 0) { ctx.globalCompositeOperation = 'source-atop'; ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.fillRect(z.x, z.y, z.w, z.h); ctx.globalCompositeOperation = 'source-over'; } 
+                
+                if (z.type === 'warlord' && z.hp > 0) {
+                    ctx.fillStyle = "#222"; ctx.fillRect(z.x, z.y - 10, z.w, 6); ctx.fillStyle = "#d32f2f"; ctx.fillRect(z.x, z.y - 10, (z.hp/z.maxHp)*z.w, 6); ctx.strokeStyle = "#000"; ctx.strokeRect(z.x, z.y - 10, z.w, 6);
+                }
+                ctx.globalAlpha = 1.0; 
+            });
+
+            if (['PLAYING', 'TUTORIAL', 'SUNRISE'].includes(this.state)) {
+                if (this.player.mutationGlow > 0) {
+                    ctx.save();
+                    ctx.shadowBlur = 20 + Math.sin(this.frames * 0.2) * 10; ctx.shadowColor = '#d32f2f';
+                    ctx.globalAlpha = (this.player.mutationGlow / 180) * (0.5 + Math.sin(this.frames * 0.2) * 0.3);
+                    ctx.fillStyle = '#d32f2f'; ctx.beginPath(); ctx.arc(this.player.x + 20, this.player.y + 20, 30, 0, Math.PI * 2); ctx.fill();
+                    ctx.restore();
+                }
+
+                ctx.save(); 
+                if (this.player.iFrames > 0 && Math.floor(this.frames / 4) % 2 === 0) ctx.globalAlpha = 0.3; 
+                drawCharacter(ctx, this.player, this.frames); 
+                ctx.restore();
+            }
+
+            this.particles.forEach(p => { ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, 4, 4); });
+            this.floatTexts.forEach(t => { ctx.globalAlpha = t.life / 60; ctx.fillStyle = t.color; ctx.font = "bold 16px Courier"; ctx.textAlign = "center"; ctx.fillText(t.text, t.x, t.y); ctx.globalAlpha = 1.0; });
+
+            if (['PLAYING', 'TUTORIAL', 'SUNRISE'].includes(this.state)) {
+                let drawFloatingBar = (yOff, val, max, color) => { 
+                    ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(this.player.x, this.player.y - yOff, 40, 6); 
+                    ctx.fillStyle = color; ctx.fillRect(this.player.x, this.player.y - yOff, Math.max(0, (val/max)*40), 6); 
+                    ctx.strokeStyle = "#000"; ctx.strokeRect(this.player.x, this.player.y - yOff, 40, 6); 
+                }
+                drawFloatingBar(10, this.player.condition, this.player.maxCondition, "#ff9900"); drawFloatingBar(18, this.player.stamina, this.player.maxStamina, "#3399ff"); drawFloatingBar(26, this.player.hp, this.player.maxHp, "#ef5350");
+            }
+
+            ctx.restore(); 
+            this.drawLighting();
+
+            if (this.state === 'TUTORIAL') {
+                if (this.tutPhase <= 4) {
+                    ctx.fillStyle = "rgba(0,0,0,1)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.fillStyle = "#ffb300"; ctx.font = "bold 20px Courier"; ctx.textAlign = "center";
+                    ctx.fillText(this.tutText, canvas.width/2, canvas.height/2);
+                } else {
+                    ctx.fillStyle = "rgba(0,0,0,0.7)"; ctx.fillRect(0, canvas.height - 80, canvas.width, 80);
+                    ctx.fillStyle = "#ffcc00"; ctx.font = "bold 22px Courier"; ctx.textAlign = "center";
+                    ctx.fillText(this.tutText, canvas.width/2, canvas.height - 35);
+                }
+            }
+            
+            if (this.state === 'EPILOGUE') {
+                ctx.fillStyle = "rgba(0,0,0,0.95)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = "#ffb300"; ctx.font = "bold 24px Courier"; ctx.textAlign = "center";
+                ctx.fillText(this.epiLines[this.epiPhase], canvas.width/2, canvas.height/2);
+            }
+
+            if (this.announceTimer > 0 && this.state !== 'TUTORIAL') { let alpha = this.announceTimer > 60 ? 1 : this.announceTimer / 60; ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`; ctx.font = "bold 60px Courier"; ctx.textAlign = "center"; ctx.fillText(this.announceText, canvas.width/2, canvas.height/4); }
+            if (this.sleepFade > 0) { let alpha = this.sleepFade > 30 ? (60 - this.sleepFade)/30 : this.sleepFade/30; ctx.fillStyle = `rgba(0,0,0,${alpha})`; ctx.fillRect(0,0,canvas.width,canvas.height); }
+
+            if (['PLAYING', 'SUNRISE'].includes(this.state) || (this.state === 'TUTORIAL' && this.tutPhase > 4)) {
+                ctx.fillStyle = "#111"; ctx.fillRect(0, 0, canvas.width, 60); 
+                ctx.drawImage(sprMeat, 20, 15);
+                ctx.fillStyle = "#fff"; ctx.font = "bold 20px Courier"; ctx.textAlign = "left"; 
+                ctx.fillText(`MEAT: ${this.food}`, 55, 35); 
+                
+                if (this.state !== 'TUTORIAL') {
+                    ctx.textAlign = "right";
+                    ctx.fillText(`TRAIN: ${this.dummy.hits}/${this.dummy.hitsNeeded}`, canvas.width - 20, 35);
+                }
+                
+                let trackW = 400; let trackX = canvas.width/2 - trackW/2; let trackY = 30;
+                ctx.fillStyle = "#333"; ctx.fillRect(trackX, trackY - 2, trackW, 4);
+                let pct = 1 - (this.timeTimer / this.phaseDur);
+                if (this.state === 'SUNRISE') pct = 1;
+                ctx.fillStyle = this.isDay || this.state === 'SUNRISE' ? "#ffeb3b" : "#90caf9"; ctx.fillRect(trackX, trackY - 2, trackW * pct, 4);
+                
+                let icon = this.isDay || this.state === 'SUNRISE' ? sprSun : (this.isSiege ? sprBloodMoon : sprMoon); 
+                ctx.drawImage(icon, trackX + (trackW * pct) - 12, trackY - 12);
+                
+                ctx.font = "bold 20px Courier"; ctx.fillStyle = this.isSiege ? "#ef5350" : "#fff"; ctx.textAlign = "center";
+                let phaseText = (this.isSiege ? "🩸 SIEGE " : (this.isDay || this.state === 'SUNRISE' ? "DAY " : "NIGHT ")) + this.dayCount;
+                if (this.state === 'TUTORIAL') phaseText = "PROLOGUE";
+                if (this.gameMode === 'ENDLESS') phaseText += " (ENDLESS)";
+                ctx.fillText(phaseText, canvas.width/2, trackY - 15);
+            }
+        }
+    }
+
+    const gameEngine = new Game();
+
+    function startGame(mode) { document.getElementById('mainMenu').classList.add('hidden'); gameEngine.startRun(mode); }
+    function startTutorialMenu() { document.getElementById('mainMenu').classList.add('hidden'); gameEngine.startTutorial(); }
+    function startEpilogueMenu() { document.getElementById('mainMenu').classList.add('hidden'); gameEngine.startEpilogue(); }
+
+    const FPS = 60; const frameDelay = 1000 / FPS; let lastFrameTime = performance.now();
+    function gameLoop(currentTime) {
+        requestAnimationFrame(gameLoop); const deltaTime = currentTime - lastFrameTime;
+        if (deltaTime >= frameDelay) { lastFrameTime = currentTime - (deltaTime % frameDelay); if (!gameEngine.paused) gameEngine.update(); gameEngine.draw(); }
+    }
+    requestAnimationFrame(gameLoop);
+</script>
+
+</body>
+</html>
