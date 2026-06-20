@@ -134,10 +134,8 @@
     </div>
 
     <div id="gameContainer">
-        <!-- The Game Viewport -->
         <canvas id="gameCanvas" width="1024" height="576"></canvas>
 
-        <!-- Touch UI (Hidden on Desktop) -->
         <div id="touchUI" class="hidden">
             <div id="joystickBase"><div id="joystickStick"></div></div>
             <div id="btnPunch" class="touch-zone touch-btn">PUNCH</div>
@@ -147,14 +145,12 @@
             <div id="btnPause" class="touch-zone touch-btn" onclick="gameEngine.togglePause()">||</div>
         </div>
 
-        <!-- MAIN MENU -->
         <div id="mainMenu" class="menu-overlay">
             <h1 class="menu-title">LAST DOJO</h1>
             <p id="highScoreDisplay"></p>
             <div id="dynamicMenuButtons" style="display: flex; flex-direction: column; align-items: center; width: 100%;"></div>
         </div>
 
-        <!-- SETTINGS MENU -->
         <div id="settingsMenu" class="menu-overlay hidden">
             <h1 class="menu-title">SETTINGS</h1>
             <button class="arcade-btn" id="audioBtn" onclick="toggleAudio()">AUDIO: ON</button>
@@ -162,7 +158,6 @@
             <button class="arcade-btn" onclick="closeSettings()" style="margin-top: 20px;">BACK</button>
         </div>
 
-        <!-- CONTROLS MENU -->
         <div id="controlsMenu" class="menu-overlay hidden">
             <h1 class="menu-title" style="font-size: clamp(30px, 5vw, 40px); margin-bottom: 10px;">KEYBINDS</h1>
             <div class="settings-container">
@@ -179,7 +174,6 @@
             <button class="arcade-btn" onclick="closeControlsMenu()">DONE</button>
         </div>
 
-        <!-- ENDLESS SETTINGS MENU -->
         <div id="endlessSettingsMenu" class="menu-overlay hidden">
             <h1 class="menu-title" style="font-size: clamp(30px, 5vw, 40px); margin-bottom: 10px;">ENDLESS OPTIONS</h1>
             <div class="settings-container" style="color: #fff;">
@@ -244,6 +238,8 @@
             <button class="arcade-btn" onclick="restartGame()">CONTINUE (SPACE)</button>
             <button class="arcade-btn" onclick="quitToMenu()">MAIN MENU (Q)</button>
         </div>
+        
+        <div class="controls" id="footerControls" style="bottom: 10px; pointer-events: none; z-index: 15; position: absolute;"></div>
     </div>
 
 <script>
@@ -277,9 +273,15 @@
     }
     
     function updateControlsUI() {
+        let footer = document.getElementById('footerControls');
         if (isTouchDevice) {
-            document.getElementById('controlsBtn').classList.add('hidden');
+            footer.classList.add('hidden'); 
+            document.getElementById('controlsBtn').classList.add('hidden'); 
         } else {
+            footer.innerHTML = `
+                <p>Move: <kbd>${getDisplayKey(userKeys.up)}</kbd><kbd>${getDisplayKey(userKeys.left)}</kbd><kbd>${getDisplayKey(userKeys.down)}</kbd><kbd>${getDisplayKey(userKeys.right)}</kbd> | Sleep: <kbd>${getDisplayKey(userKeys.sleep)}</kbd> | Pause: <kbd>${getDisplayKey(userKeys.pause)}</kbd> or <kbd>ESC</kbd></p>
+                <p>Punch: <kbd>Left Click</kbd> or <kbd>${getDisplayKey(userKeys.punch)}</kbd> | Spin: <kbd>Right Click</kbd> or <kbd>${getDisplayKey(userKeys.spin)}</kbd> | Eat: <kbd>${getDisplayKey(userKeys.eat)}</kbd></p>`;
+            
             ['up','left','down','right','punch','spin','sleep','eat','pause'].forEach(act => {
                 let btn = document.getElementById('bind_' + act);
                 if(btn) { btn.innerText = getDisplayKey(userKeys[act]); btn.classList.remove('waiting'); }
@@ -473,6 +475,16 @@
     const sprMoon = buildSprite(["...EEEE.","..EEENNN",".EEEN...",".EEN....",".EEN....",".EEEN...","..EEENNN","...EEEE."], 3);
     const sprBloodMoon = buildSprite(["...FFFF.","..FFFRRR",".FFFR...","..FFR....","..FFR....",".FFFR...","..FFFRRR","...FFFF."], 3);
 
+    // ==========================================
+    // DYNAMIC FAVICON INJECTION
+    // ==========================================
+    (function injectFavicon() {
+        let link = document.createElement('link');
+        link.type = 'image/png'; link.rel = 'icon';
+        link.href = sprDojo.toDataURL();
+        document.head.appendChild(link);
+    })();
+
     function drawCharacter(c, ent, frames, gameMode) {
         let isP = ent.type === 'player'; let t = ent.type; let s = (t === 'brute') ? 1.4 : (t === 'warlord' ? 2.2 : 1.0); 
         
@@ -610,24 +622,46 @@
                 let joyBase = document.getElementById('joystickBase');
                 let joyStick = document.getElementById('joystickStick');
                 let joyActive = false; let joyOrigin = {x:0, y:0}; let joyMax = 40;
+                let joyTouchId = null;
 
                 joyBase.addEventListener('touchstart', (e) => {
-                    e.preventDefault(); joyActive = true;
+                    e.preventDefault(); 
+                    if (joyActive) return; 
+                    let touch = e.changedTouches[0];
+                    joyTouchId = touch.identifier;
+                    joyActive = true;
                     let rect = joyBase.getBoundingClientRect();
                     joyOrigin = { x: rect.left + rect.width/2, y: rect.top + rect.height/2 };
-                    updateJoy(e.touches[0]);
+                    updateJoy(touch);
                 }, {passive: false});
 
                 joyBase.addEventListener('touchmove', (e) => {
-                    e.preventDefault(); if (joyActive) updateJoy(e.touches[0]);
+                    e.preventDefault(); 
+                    if (!joyActive) return;
+                    for(let i=0; i<e.changedTouches.length; i++) {
+                        if(e.changedTouches[i].identifier === joyTouchId) {
+                            updateJoy(e.changedTouches[i]);
+                            break;
+                        }
+                    }
                 }, {passive: false});
 
                 const stopJoy = (e) => {
-                    e.preventDefault(); joyActive = false;
-                    joyStick.style.transform = `translate(0px, 0px)`;
-                    this.keys.up = false; this.keys.down = false; this.keys.left = false; this.keys.right = false;
+                    e.preventDefault(); 
+                    if (!joyActive) return;
+                    for(let i=0; i<e.changedTouches.length; i++) {
+                        if(e.changedTouches[i].identifier === joyTouchId) {
+                            joyActive = false;
+                            joyTouchId = null;
+                            joyStick.style.transform = `translate(0px, 0px)`;
+                            this.keys.up = false; this.keys.down = false; 
+                            this.keys.left = false; this.keys.right = false;
+                            break;
+                        }
+                    }
                 };
-                joyBase.addEventListener('touchend', stopJoy); joyBase.addEventListener('touchcancel', stopJoy);
+                joyBase.addEventListener('touchend', stopJoy); 
+                joyBase.addEventListener('touchcancel', stopJoy);
 
                 const updateJoy = (touch) => {
                     let dx = touch.clientX - joyOrigin.x; let dy = touch.clientY - joyOrigin.y;
@@ -1075,6 +1109,7 @@
                     if (this.isDay) {
                         this.dayCount++; this.isSiege = false; this.announceText = "DAY " + this.dayCount;
                         
+                        // LAVA MUTATOR FIX
                         if (this.gameMode === 'ENDLESS' && endlessConfig.lavaMode) {
                             this.damagePools.push({ x: Math.random()*canvas.width, y: Math.random()*canvas.height, life: 999999 });
                             let lavaCount = this.damagePools.filter(dp => dp.life > 100000).length;
@@ -1181,10 +1216,7 @@
             if (this.keys.right && !this.keys.left) { this.player.x += pSpeed; this.player.facingRight = true; }
             if (this.keys.up && !this.keys.down) this.player.y -= pSpeed;
             if (this.keys.down && !this.keys.up) this.player.y += pSpeed;
-            
-            // Limit Player Y to 110 to avoid clipping behind top UI header
-            this.player.x = Math.max(0, Math.min(canvas.width - this.player.size, this.player.x)); 
-            this.player.y = Math.max(110, Math.min(canvas.height - this.player.size, this.player.y)); 
+            this.player.x = Math.max(0, Math.min(canvas.width - this.player.size, this.player.x)); this.player.y = Math.max(80, Math.min(canvas.height - this.player.size, this.player.y)); 
 
             let regenRate = 0.1 + (this.player.condition / 100) * 1.5; 
             if (!this.player.isAttacking && this.player.stamina < this.player.maxStamina && !this.isSiege && !this.hasInfiniteStamina()) this.player.stamina += regenRate;
@@ -1276,7 +1308,7 @@
                 
                 if (z.burning) { 
                     if (z.type === 'warlord' && this.state === 'SUNRISE') {
-                        return; 
+                        return; // Boss detonation is handled in the sunrise logic
                     } else {
                         z.hp -= (z.type === 'warlord' ? 150 : 3); 
                         if (Math.random() < 0.2) this.spawnParticles(z.x+20, z.y+20, '#ff9900', 1); 
@@ -1519,6 +1551,7 @@
             ctx.restore(); 
             this.drawLighting();
 
+            // DAMAGE FLASH EFFECT
             if (this.damageFlash > 0) {
                 ctx.fillStyle = `rgba(255, 0, 0, ${this.damageFlash / 40})`; 
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -1528,6 +1561,7 @@
                 ctx.fillStyle = "rgba(0, 0, 0, 0.6)"; ctx.fillRect(0, 0, canvas.width, canvas.height); 
             }
 
+            // CINEMATIC LORE OVERLAYS
             if (this.state === 'TUTORIAL') {
                 if (this.tutPhase <= 4) {
                     ctx.fillStyle = "rgba(0,0,0,1)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -1553,6 +1587,7 @@
                 ctx.font = "bold 60px Courier"; ctx.textAlign = "center"; 
                 ctx.fillText(this.announceText, canvas.width/2, canvas.height/4); 
                 
+                // SUBTITLE LORE
                 if (this.subAnnounceText) {
                     ctx.fillStyle = `rgba(211, 47, 47, ${alpha})`; 
                     ctx.font = "bold 24px Courier"; 
@@ -1561,6 +1596,7 @@
             }
             if (this.sleepFade > 0) { let alpha = this.sleepFade > 30 ? (60 - this.sleepFade)/30 : this.sleepFade/30; ctx.fillStyle = `rgba(0,0,0,${alpha})`; ctx.fillRect(0,0,canvas.width,canvas.height); }
 
+            // TOP UI HEADER
             if (['PLAYING', 'SUNRISE'].includes(this.state) || (this.state === 'TUTORIAL' && this.tutPhase > 4)) {
                 ctx.fillStyle = "#111"; ctx.fillRect(0, 0, canvas.width, 60); 
                 ctx.drawImage(sprMeat, 20, 15);
