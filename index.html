@@ -2,12 +2,13 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Last Dojo - Beta 1.14 (UI Polish)</title>
+    <title>Last Dojo</title>
     <style>
         html, body { 
             margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; 
             background-color: #0a0a0a; color: #eee; font-family: 'Courier New', Courier, monospace; 
             display: flex; flex-direction: column; align-items: center; justify-content: center;
+            user-select: none; -webkit-user-select: none;
         }
         
         #gameContainer {
@@ -31,8 +32,7 @@
         .menu-title { 
             font-size: 80px; color: #d32f2f; 
             text-shadow: 4px 4px #000, 0 0 30px #d32f2f; 
-            margin: 0 0 40px 0; letter-spacing: 10px; font-weight: 900;
-            text-align: center;
+            margin: 0 0 40px 0; letter-spacing: 10px; font-weight: 900; text-align: center;
         }
         
         .arcade-btn {
@@ -57,125 +57,288 @@
             border-radius: 8px; border: 1px solid #333; font-size: 0.9em;
         }
         kbd { background: #444; padding: 2px 6px; border-radius: 4px; color: #fff; box-shadow: 0 2px 0 #222; }
+
+        #highScoreDisplay {
+            color: #ffcc00; font-weight: bold; margin-top: -20px; margin-bottom: 30px; 
+            letter-spacing: 2px; font-size: 20px; text-shadow: 2px 2px #000;
+        }
+
+        .settings-container {
+            width: 480px; height: 350px; overflow-y: auto; background: rgba(0,0,0,0.5); 
+            border: 2px solid #555; padding: 15px; border-radius: 8px; margin-bottom: 20px;
+        }
+        .settings-container::-webkit-scrollbar { width: 8px; }
+        .settings-container::-webkit-scrollbar-thumb { background: #d32f2f; border-radius: 4px; }
+        
+        .settings-category { color: #d32f2f; font-weight: bold; font-size: 20px; margin: 15px 0 10px 0; border-bottom: 1px solid #d32f2f; padding-bottom: 5px; text-align: left;}
+        
+        .settings-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-size: 16px;}
+        .settings-row label { flex: 2; text-align: left; }
+        .settings-row input[type=range] { flex: 2; margin: 0 15px; cursor: pointer; accent-color: #ffcc00;}
+        .settings-row input[type=checkbox] { transform: scale(1.5); margin-right: 10px; cursor: pointer; accent-color: #d32f2f;}
+        .settings-row span { flex: 0.5; text-align: right; color: #ffcc00; font-weight: bold; }
+        
+        .bind-btn { background: #222; border: 1px solid #d32f2f; color: #ffcc00; padding: 4px 10px; font-family: inherit; font-size: 16px; cursor: pointer; width: 120px; text-align: center;}
+        .bind-btn.waiting { background: #d32f2f; color: #fff; animation: pulseAnim 1s infinite; }
     </style>
 </head>
 <body>
 
     <div id="gameContainer">
         <canvas id="gameCanvas" width="1024" height="576"></canvas>
-        
+
         <div id="mainMenu" class="menu-overlay">
             <h1 class="menu-title">LAST DOJO</h1>
+            <p id="highScoreDisplay"></p>
             <div id="dynamicMenuButtons" style="display: flex; flex-direction: column; align-items: center;"></div>
-            <button class="arcade-btn" onclick="openSettings()">SETTINGS</button>
         </div>
 
         <div id="settingsMenu" class="menu-overlay hidden">
             <h1 class="menu-title" style="font-size: 50px;">SETTINGS</h1>
             <button class="arcade-btn" id="audioBtn" onclick="toggleAudio()">AUDIO: ON</button>
+            <button class="arcade-btn" onclick="openControlsMenu()">EDIT CONTROLS</button>
             <button class="arcade-btn" onclick="closeSettings()" style="margin-top: 40px;">BACK</button>
+        </div>
+
+        <div id="controlsMenu" class="menu-overlay hidden">
+            <h1 class="menu-title" style="font-size: 40px; margin-bottom: 20px;">CONTROLS</h1>
+            <div class="settings-container">
+                <div class="settings-row"><label>Move Up</label><button class="bind-btn" id="bind_up" onclick="startBind('up')"></button></div>
+                <div class="settings-row"><label>Move Left</label><button class="bind-btn" id="bind_left" onclick="startBind('left')"></button></div>
+                <div class="settings-row"><label>Move Down</label><button class="bind-btn" id="bind_down" onclick="startBind('down')"></button></div>
+                <div class="settings-row"><label>Move Right</label><button class="bind-btn" id="bind_right" onclick="startBind('right')"></button></div>
+                <div class="settings-row"><label>Punch</label><button class="bind-btn" id="bind_punch" onclick="startBind('punch')"></button></div>
+                <div class="settings-row"><label>Spin Kick</label><button class="bind-btn" id="bind_spin" onclick="startBind('spin')"></button></div>
+                <div class="settings-row"><label>Sleep</label><button class="bind-btn" id="bind_sleep" onclick="startBind('sleep')"></button></div>
+                <div class="settings-row"><label>Eat</label><button class="bind-btn" id="bind_eat" onclick="startBind('eat')"></button></div>
+                <div class="settings-row"><label>Pause</label><button class="bind-btn" id="bind_pause" onclick="startBind('pause')"></button></div>
+            </div>
+            <button class="arcade-btn" onclick="closeControlsMenu()">DONE</button>
+        </div>
+
+        <div id="endlessSettingsMenu" class="menu-overlay hidden">
+            <h1 class="menu-title" style="font-size: 40px; margin-top: 20px; margin-bottom: 10px;">ENDLESS OPTIONS</h1>
+            <div class="settings-container" style="color: #fff;">
+                <div class="settings-category">The World</div>
+                <div class="settings-row"><label>Blood Moon Freq.</label><input type="range" id="eo_bmFreq" min="1" max="14" step="1" oninput="updateEO('bmFreq')"><span id="val_bmFreq"></span></div>
+                <div class="settings-row"><label>Day/Night Length</label><input type="range" id="eo_phaseLen" min="0.2" max="3" step="0.1" oninput="updateEO('phaseLen')"><span id="val_phaseLen"></span></div>
+                <div class="settings-row"><label>Bandage Drop Rate</label><input type="range" id="eo_bandageDrop" min="0" max="1.0" step="0.05" oninput="updateEO('bandageDrop')"><span id="val_bandageDrop"></span></div>
+                <div class="settings-row"><label>Starting Crates</label><input type="range" id="eo_crates" min="0" max="10" step="1" oninput="updateEO('crates')"><span id="val_crates"></span></div>
+                <div class="settings-row"><label>Dojo Max HP</label><input type="range" id="eo_dojoHp" min="10" max="1000" step="10" oninput="updateEO('dojoHp')"><span id="val_dojoHp"></span></div>
+                
+                <div class="settings-category">The Player</div>
+                <div class="settings-row"><label>Player Speed</label><input type="range" id="eo_pSpeed" min="0.5" max="3" step="0.1" oninput="updateEO('pSpeed')"><span id="val_pSpeed"></span></div>
+                <div class="settings-row"><label>Lifesteal (Per Hit)</label><input type="range" id="eo_lifesteal" min="0" max="10" step="1" oninput="updateEO('lifesteal')"><span id="val_lifesteal"></span></div>
+                <div class="settings-row"><label>Knockback Power</label><input type="range" id="eo_knockback" min="0" max="5" step="0.1" oninput="updateEO('knockback')"><span id="val_knockback"></span></div>
+                <div class="settings-row"><label>Spin Cooldown</label><input type="range" id="eo_spinCd" min="0" max="3" step="0.1" oninput="updateEO('spinCd')"><span id="val_spinCd"></span></div>
+                <div class="settings-row"><label>Stamina Drain</label><input type="range" id="eo_stamDrain" min="0" max="3" step="0.1" oninput="updateEO('stamDrain')"><span id="val_stamDrain"></span></div>
+
+                <div class="settings-category">The Horde</div>
+                <div class="settings-row"><label>Max Zombies Cap</label><input type="range" id="eo_maxZ" min="5" max="150" step="5" oninput="updateEO('maxZ')"><span id="val_maxZ"></span></div>
+                <div class="settings-row"><label>Spawn Rate</label><input type="range" id="eo_spawnRate" min="0.1" max="5" step="0.1" oninput="updateEO('spawnRate')"><span id="val_spawnRate"></span></div>
+                <div class="settings-row"><label>Zombie Health</label><input type="range" id="eo_zHealth" min="0.1" max="5" step="0.1" oninput="updateEO('zHealth')"><span id="val_zHealth"></span></div>
+                <div class="settings-row"><label>Zombie Damage</label><input type="range" id="eo_zDamage" min="0.1" max="5" step="0.1" oninput="updateEO('zDamage')"><span id="val_zDamage"></span></div>
+                <div class="settings-row"><label>Zombie Speed</label><input type="range" id="eo_zSpeed" min="0.5" max="3" step="0.1" oninput="updateEO('zSpeed')"><span id="val_zSpeed"></span></div>
+                
+                <div class="settings-category">The Warlord</div>
+                <div class="settings-row"><label>Boss Spawn Freq.</label><input type="range" id="eo_bossFreq" min="1" max="50" step="1" oninput="updateEO('bossFreq')"><span id="val_bossFreq"></span></div>
+                <div class="settings-row"><label>Boss Max Cap</label><input type="range" id="eo_bossCap" min="1" max="10" step="1" oninput="updateEO('bossCap')"><span id="val_bossCap"></span></div>
+                <div class="settings-row"><label>Boss Health</label><input type="range" id="eo_bHealth" min="0.1" max="10" step="0.5" oninput="updateEO('bHealth')"><span id="val_bHealth"></span></div>
+                <div class="settings-row"><label>Boss Speed</label><input type="range" id="eo_bSpeed" min="0.1" max="3" step="0.1" oninput="updateEO('bSpeed')"><span id="val_bSpeed"></span></div>
+                <div class="settings-row"><label>Boss Scale (Size)</label><input type="range" id="eo_bossSize" min="0.5" max="3" step="0.1" oninput="updateEO('bossSize')"><span id="val_bossSize"></span></div>
+
+                <div class="settings-category">Mutators & Cheats</div>
+                <div class="settings-row" style="justify-content: flex-start;"><input type="checkbox" id="eo_infStamReg"><label>Infinite Stamina (Normal Nights)</label></div>
+                <div class="settings-row" style="justify-content: flex-start;"><input type="checkbox" id="eo_infStamBM"><label>Infinite Stamina (Blood Moons)</label></div>
+                <div class="settings-row" style="justify-content: flex-start;"><input type="checkbox" id="eo_dojoRegen"><label>Dojo Auto-Regen (Daytime)</label></div>
+                <div class="settings-row" style="justify-content: flex-start;"><input type="checkbox" id="eo_explodeZ"><label>Exploding Zombies</label></div>
+                <div class="settings-row" style="justify-content: flex-start;"><input type="checkbox" id="eo_pitchBlack"><label>Pitch Black Mode</label></div>
+                <div class="settings-row" style="justify-content: flex-start;"><input type="checkbox" id="eo_lavaMode"><label>The Floor is Lava</label></div>
+                <div class="settings-row" style="justify-content: flex-start;"><input type="checkbox" id="eo_ohk"><label style="color:#F00">ONE HIT KILL MODE</label></div>
+            </div>
+            <button class="arcade-btn" onclick="saveEndlessSettings()">SAVE & BACK</button>
         </div>
 
         <div id="pauseMenu" class="menu-overlay hidden">
             <h1 class="menu-title">PAUSED</h1>
             <button class="arcade-btn" onclick="gameEngine.togglePause()">RESUME (P)</button>
-            <button class="arcade-btn" onclick="openSettings()">SETTINGS (O)</button>
-            <button class="arcade-btn" onclick="quitToMenu()">MAIN MENU (Q)</button>
+            <button class="arcade-btn" onclick="openSettings()">SETTINGS</button>
+            <button class="arcade-btn" onclick="quitToMenu()">MAIN MENU</button>
         </div>
 
         <div id="gameOverMenu" class="menu-overlay hidden">
             <h1 class="menu-title" id="goTitle">YOU DIED</h1>
             <p id="goDesc" style="font-size: 24px; margin-bottom: 30px;">Survived to Day X</p>
-            <button class="arcade-btn" onclick="restartGame()">RESTART (SPACE)</button>
-            <button class="arcade-btn" onclick="quitToMenu()">MAIN MENU (Q)</button>
+            <button class="arcade-btn" onclick="restartGame()">RESTART</button>
+            <button class="arcade-btn" onclick="quitToMenu()">MAIN MENU</button>
         </div>
 
         <div id="victoryMenu" class="menu-overlay hidden">
-            <h1 class="menu-title" style="color: #ffcc00; text-shadow: 4px 4px #000, 0 0 30px #ffcc00;">VICTORY</h1>
-            <p style="font-size: 24px; margin-bottom: 10px;">The Dojo stands. The Warlord is broken.</p>
+            <h1 class="menu-title">VICTORY</h1>
+            <p style="font-size: 24px; margin-bottom: 10px;">The Dojo stands. The Warlord's vessel is shattered.</p>
             <p style="font-size: 24px; color: #d32f2f; margin-bottom: 30px; font-weight: bold;">ENDLESS MODE UNLOCKED</p>
-            <button class="arcade-btn" onclick="restartGame()">CONTINUE (SPACE)</button>
-            <button class="arcade-btn" onclick="quitToMenu()">MAIN MENU (Q)</button>
+            <button class="arcade-btn" onclick="restartGame()">CONTINUE</button>
+            <button class="arcade-btn" onclick="quitToMenu()">MAIN MENU</button>
         </div>
     </div>
 
-    <div class="controls">
-        <p>Move & Aim: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> | Sleep: <kbd>E</kbd> | Pause: <kbd>P</kbd> or <kbd>ESC</kbd></p>
-        <p>Punch: <kbd>Left Click</kbd> or <kbd>SPACE</kbd> | Spin: <kbd>Right Click</kbd> or <kbd>SHIFT</kbd> | Eat: <kbd>R</kbd></p>
-    </div>
+    <div class="controls" id="footerControls"></div>
 
 <script>
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
 
-    function hideAllMenus() {
-        ['mainMenu', 'settingsMenu', 'pauseMenu', 'gameOverMenu', 'victoryMenu'].forEach(id => {
-            document.getElementById(id).classList.add('hidden');
+    // ==========================================
+    // KEY BINDING SYSTEM
+    // ==========================================
+    const defaultKeys = { up: 'w', left: 'a', down: 's', right: 'd', punch: ' ', spin: 'shift', sleep: 'e', eat: 'r', pause: 'p' };
+    let userKeys = JSON.parse(localStorage.getItem('lastDojoKeys')) || { ...defaultKeys };
+    let bindingAction = null;
+
+    function getDisplayKey(k) { 
+        if (k === ' ') return 'SPACE';
+        if (k === 'escape') return 'ESC';
+        return k.toUpperCase(); 
+    }
+    
+    function updateControlsUI() {
+        document.getElementById('footerControls').innerHTML = `
+            <p>Move: <kbd>${getDisplayKey(userKeys.up)}</kbd><kbd>${getDisplayKey(userKeys.left)}</kbd><kbd>${getDisplayKey(userKeys.down)}</kbd><kbd>${getDisplayKey(userKeys.right)}</kbd> | Sleep: <kbd>${getDisplayKey(userKeys.sleep)}</kbd> | Pause: <kbd>${getDisplayKey(userKeys.pause)}</kbd> or <kbd>ESC</kbd></p>
+            <p>Punch: <kbd>Left Click</kbd> or <kbd>${getDisplayKey(userKeys.punch)}</kbd> | Spin: <kbd>Right Click</kbd> or <kbd>${getDisplayKey(userKeys.spin)}</kbd> | Eat: <kbd>${getDisplayKey(userKeys.eat)}</kbd></p>`;
+        
+        ['up','left','down','right','punch','spin','sleep','eat','pause'].forEach(act => {
+            let btn = document.getElementById('bind_' + act);
+            if(btn) { btn.innerText = getDisplayKey(userKeys[act]); btn.classList.remove('waiting'); }
         });
     }
 
+    function startBind(action) {
+        if(bindingAction) document.getElementById('bind_' + bindingAction).classList.remove('waiting');
+        bindingAction = action;
+        let btn = document.getElementById('bind_' + action);
+        btn.innerText = 'PRESS KEY...';
+        btn.classList.add('waiting');
+    }
+
+    window.addEventListener('keydown', (e) => {
+        if (bindingAction) {
+            e.preventDefault();
+            let k = e.key.toLowerCase(); if (k === 'escape') return; 
+            userKeys[bindingAction] = k;
+            localStorage.setItem('lastDojoKeys', JSON.stringify(userKeys));
+            bindingAction = null;
+            updateControlsUI();
+        }
+    });
+
+    // ==========================================
+    // ENDLESS MODE SETTINGS SYSTEM
+    // ==========================================
+    const defaultEndless = { 
+        maxZ: 25, zSpeed: 1.0, zHealth: 1.0, zDamage: 1.0, bHealth: 1.0, bSpeed: 1.0, pSpeed: 1.0, 
+        infStamReg: false, infStamBM: true, knockback: 1.0, spinCd: 1.0, lifesteal: 0, stamDrain: 1.0, 
+        spawnRate: 1.0, explodeZ: false, bossFreq: 35, bossSize: 1.0, bossCap: 3, bmFreq: 7, 
+        phaseLen: 1.0, dojoRegen: false, dojoHp: 300, crates: 3, bandageDrop: 0.1, 
+        ohk: false, pitchBlack: false, lavaMode: false 
+    };
+    
+    let endlessConfig = JSON.parse(localStorage.getItem('lastDojoEndlessConfig'));
+    if (!endlessConfig) { endlessConfig = { ...defaultEndless }; } 
+    else { endlessConfig = { ...defaultEndless, ...endlessConfig }; }
+
+    function loadEndlessUI() {
+        for (let k in endlessConfig) {
+            let el = document.getElementById('eo_' + k);
+            if (el) {
+                if (el.type === 'checkbox') el.checked = endlessConfig[k];
+                else { el.value = endlessConfig[k]; updateEO(k); }
+            }
+        }
+    }
+    
+    function updateEO(key) {
+        let el = document.getElementById('eo_' + key);
+        if (!el) return;
+        let val = el.value;
+        let ext = ['maxZ', 'bossFreq', 'bossCap', 'bmFreq', 'dojoHp', 'crates', 'lifesteal'].includes(key) ? '' : 'x';
+        if (key === 'bandageDrop') ext = '%'; 
+        let displayVal = key === 'bandageDrop' ? Math.round(val * 100) : val;
+        
+        let span = document.getElementById('val_' + key);
+        if(span) span.innerText = displayVal + ext;
+    }
+
+    function openEndlessSettings() {
+        hideAllMenus(); loadEndlessUI(); document.getElementById('endlessSettingsMenu').classList.remove('hidden');
+    }
+
+    function saveEndlessSettings() {
+        for (let k in endlessConfig) {
+            let el = document.getElementById('eo_' + k);
+            if (el) {
+                if (el.type === 'checkbox') endlessConfig[k] = el.checked;
+                else endlessConfig[k] = parseFloat(el.value);
+            }
+        }
+        localStorage.setItem('lastDojoEndlessConfig', JSON.stringify(endlessConfig));
+        hideAllMenus(); document.getElementById('mainMenu').classList.remove('hidden');
+    }
+
+    // ==========================================
+    // MENU NAVIGATION
+    // ==========================================
+    function hideAllMenus() {
+        ['mainMenu', 'settingsMenu', 'pauseMenu', 'gameOverMenu', 'victoryMenu', 'controlsMenu', 'endlessSettingsMenu'].forEach(id => {
+            document.getElementById(id).classList.add('hidden');
+        });
+        bindingAction = null; updateControlsUI();
+    }
+
     function renderMenuButtons() {
-        const container = document.getElementById('dynamicMenuButtons');
-        container.innerHTML = ''; 
+        const container = document.getElementById('dynamicMenuButtons'); container.innerHTML = ''; 
         
-        const proBtn = document.createElement('button');
-        proBtn.className = 'arcade-btn'; proBtn.onclick = startTutorialMenu; proBtn.innerText = 'PROLOGUE';
+        let hs = parseInt(localStorage.getItem('lastDojoHighScore') || '0');
+        document.getElementById('highScoreDisplay').innerText = hs > 1 ? `HIGHEST SURVIVAL: DAY ${hs}` : "";
         
-        const surBtn = document.createElement('button');
-        surBtn.className = 'arcade-btn'; surBtn.onclick = () => startGame('SURVIVAL'); surBtn.innerText = 'SURVIVAL';
+        const proBtn = document.createElement('button'); proBtn.className = 'arcade-btn'; proBtn.onclick = startTutorialMenu; proBtn.innerText = 'PROLOGUE';
+        const surBtn = document.createElement('button'); surBtn.className = 'arcade-btn'; surBtn.onclick = () => startGame('SURVIVAL'); surBtn.innerText = 'SURVIVAL';
+        const epiBtn = document.createElement('button'); epiBtn.className = 'arcade-btn'; epiBtn.onclick = startEpilogueMenu; epiBtn.innerText = 'EPILOGUE';
 
-        const endBtn = document.createElement('button');
-        endBtn.className = 'arcade-btn'; endBtn.onclick = () => startGame('ENDLESS'); endBtn.innerText = 'ENDLESS MODE';
+        const endWrap = document.createElement('div'); endWrap.style.display = 'flex'; endWrap.style.margin = '10px';
+        const endBtn = document.createElement('button'); endBtn.className = 'arcade-btn'; endBtn.onclick = () => startGame('ENDLESS'); endBtn.innerText = 'ENDLESS MODE'; endBtn.style.margin = '0'; endBtn.style.width = '285px';
+        const gearBtn = document.createElement('button'); gearBtn.className = 'arcade-btn'; gearBtn.onclick = openEndlessSettings; gearBtn.innerText = '⚙'; gearBtn.style.margin = '0 0 0 10px'; gearBtn.style.width = '55px'; gearBtn.style.padding = '12px 0';
+        endWrap.appendChild(endBtn); endWrap.appendChild(gearBtn);
 
-        const epiBtn = document.createElement('button');
-        epiBtn.className = 'arcade-btn'; epiBtn.onclick = startEpilogueMenu; epiBtn.innerText = 'EPILOGUE';
-
+        container.appendChild(document.createElement('button')).className='hidden'; 
+        
         if (!localStorage.getItem('lastDojoPlayed')) {
-            proBtn.classList.add('pulse');
-            container.appendChild(proBtn);
-            container.appendChild(surBtn);
+            proBtn.classList.add('pulse'); container.appendChild(proBtn); container.appendChild(surBtn);
         } else {
             container.appendChild(surBtn);
+            if (localStorage.getItem('lastDojoEndlessUnlocked')) container.appendChild(endWrap);
             container.appendChild(proBtn);
         }
 
-        if (localStorage.getItem('lastDojoEndlessUnlocked')) container.appendChild(endBtn);
         if (localStorage.getItem('lastDojoEpilogueUnlocked')) container.appendChild(epiBtn);
+
+        container.appendChild(document.createElement('div')).style.height = "20px";
+        const settingsBtn = document.createElement('button'); settingsBtn.className = 'arcade-btn'; settingsBtn.onclick = openSettings; settingsBtn.innerText = 'SETTINGS';
+        container.appendChild(settingsBtn);
+        updateControlsUI();
     }
     renderMenuButtons();
 
-    function openSettings() { 
-        hideAllMenus(); 
-        document.getElementById('settingsMenu').classList.remove('hidden'); 
-    }
-    
+    function openSettings() { hideAllMenus(); document.getElementById('settingsMenu').classList.remove('hidden'); }
     function closeSettings() { 
         hideAllMenus();
-        if (gameEngine.paused) {
-            document.getElementById('pauseMenu').classList.remove('hidden');
-        } else if (gameEngine.state === 'START') {
-            document.getElementById('mainMenu').classList.remove('hidden'); 
-        }
+        if (gameEngine && gameEngine.paused) document.getElementById('pauseMenu').classList.remove('hidden');
+        else document.getElementById('mainMenu').classList.remove('hidden'); 
     }
+    function openControlsMenu() { hideAllMenus(); document.getElementById('controlsMenu').classList.remove('hidden'); updateControlsUI(); }
+    function closeControlsMenu() { hideAllMenus(); document.getElementById('settingsMenu').classList.remove('hidden'); bindingAction = null; }
 
-    function restartGame() {
-        hideAllMenus();
-        if (gameEngine.state === 'VICTORY') {
-            gameEngine.startRun('SURVIVAL');
-        } else if (gameEngine.gameMode === 'TUTORIAL') {
-            gameEngine.startTutorial();
-        } else {
-            gameEngine.startRun(gameEngine.gameMode);
-        }
-    }
-
-    function quitToMenu() {
-        hideAllMenus();
-        document.getElementById('mainMenu').classList.remove('hidden');
-        gameEngine.state = 'START';
-        gameEngine.paused = false;
-        renderMenuButtons();
-    }
+    function restartGame() { hideAllMenus(); if (gameEngine.state === 'VICTORY') gameEngine.startRun('SURVIVAL'); else if (gameEngine.gameMode === 'TUTORIAL') gameEngine.startTutorial(); else gameEngine.startRun(gameEngine.gameMode); }
+    function quitToMenu() { hideAllMenus(); document.getElementById('mainMenu').classList.remove('hidden'); gameEngine.state = 'START'; gameEngine.paused = false; renderMenuButtons(); }
 
     class AudioEngine {
         constructor() { this.ctx = null; this.muted = false; }
@@ -208,6 +371,8 @@
         sfxExplode() { this.playNoise(0.3, 0.2); }
         sfxLevelUp() { this.playTone(400, 'sine', 0.1, 0.1, 600); setTimeout(() => this.playTone(600, 'sine', 0.3, 0.1, 800), 100); }
         sfxLore() { this.playTone(200, 'sine', 0.5, 0.05); }
+        sfxWarlordRoar() { this.playNoise(1.5, 0.5); this.playTone(40, 'sawtooth', 1.5, 0.3, 10); } 
+        sfxFrustratedGroan() { this.playNoise(1.0, 0.2); this.playTone(30, 'sawtooth', 1.0, 0.2, 5); }
         sfxVictory() { this.playTone(400, 'sine', 0.2, 0.1, 600); setTimeout(() => this.playTone(600, 'sine', 0.2, 0.1, 800), 200); setTimeout(() => this.playTone(800, 'sine', 0.6, 0.1, 1200), 400); }
     }
     const sfx = new AudioEngine();
@@ -229,16 +394,29 @@
     const sprMoon = buildSprite(["...EEEE.","..EEENNN",".EEEN...",".EEN....",".EEN....",".EEEN...","..EEENNN","...EEEE."], 3);
     const sprBloodMoon = buildSprite(["...FFFF.","..FFFRRR",".FFFR...","..FFR....","..FFR....",".FFFR...","..FFFRRR","...FFFF."], 3);
 
-    function drawCharacter(c, ent, frames) {
+    function drawCharacter(c, ent, frames, gameMode) {
         let isP = ent.type === 'player'; let t = ent.type; let s = (t === 'brute') ? 1.4 : (t === 'warlord' ? 2.2 : 1.0); 
-        let walk = ent.dead ? 1.2 : (ent.isMoving ? Math.sin(frames * 0.3) : 0);
-        let punchProgress = ent.dead ? 0 : (ent.isAttacking && !ent.isSpinning ? (15 - ent.attackTimer)/15 : 0); 
+        
+        if (gameMode === 'ENDLESS' && t === 'warlord') s *= endlessConfig.bossSize;
+
+        let walk = ent.dead || ent.spawnTimer > 0 ? 0 : (ent.isMoving ? Math.sin(frames * 0.3) : 0);
+        let punchProgress = ent.dead || ent.spawnTimer > 0 ? 0 : (ent.isAttacking && !ent.isSpinning ? (15 - ent.attackTimer)/15 : 0); 
         
         let ext = 0; 
         if (punchProgress > 0) ext = punchProgress < 0.2 ? (punchProgress / 0.2) * 16*s : (1 - (punchProgress - 0.2)/0.8) * 16*s;
-        let isBiting = (!isP && ent.biteTimer > 45 && !ent.dead); let biteLunge = isBiting ? 6*s : 0;
+        let isBiting = (!isP && ent.biteTimer > 45 && !ent.dead && !ent.spawnTimer); let biteLunge = isBiting ? 6*s : 0;
 
-        c.save(); c.translate(ent.x + ent.w/2, ent.y + ent.h/2); 
+        c.save(); 
+        let yOffset = 0;
+        if (ent.spawnTimer > 0) {
+            let progress = 1 - (ent.spawnTimer / 120);
+            yOffset = (1 - progress) * (30 * s); 
+            c.beginPath(); c.rect(-100, -200, 200, 200 + ent.h/2); c.clip(); 
+        }
+        
+        c.translate(ent.x + ent.w/2, ent.y + ent.h/2 + yOffset); 
+        
+        if (ent.spawnTimer > 0) c.translate(Math.sin(frames * 0.8) * 3 * s, 0);
         if (ent.dead) c.rotate(ent.rot); else if (ent.isSpinning) c.rotate(frames * 0.5); else if (!ent.facingRight) c.scale(-1, 1);
         
         let hc, bc, lc, lg;
@@ -271,19 +449,20 @@
     class Game {
         constructor() {
             this.state = 'START'; this.gameMode = 'SURVIVAL'; this.paused = false; this.hitStop = 0; this.frames = 0;
-            this.keys = { w:false, a:false, s:false, d:false, e:false, ' ':false, r:false, shift:false };
+            this.keys = { up:false, down:false, left:false, right:false, punch:false, spin:false, eat:false, sleep:false, pause:false };
             this.mouse = { left: false, right: false }; 
             this.eReady = true; this.rReady = true; this.shiftReady = true;
 
-            this.highScore = localStorage.getItem('lastDojoHighScore') || 0;
+            this.highScore = parseInt(localStorage.getItem('lastDojoHighScore') || '0');
             this.dojo = { x: 60, y: 260, w: 60, h: 40, hp: 300, maxHp: 300 };
             this.dummy = { x: 180, y: 260, hits: 0, hitsNeeded: 15, level: 1 };
             
             this.timeTimer = 1000; this.phaseDur = 1000;
             this.isDay = true; this.dayCount = 1; this.food = 0; this.sleepFade = 0;
-            this.isSiege = false; this.shake = 0; 
-            this.announceTime = 0; this.announceText = "";
+            this.isSiege = false; this.shake = 0; this.damageFlash = 0;
+            this.announceTimer = 0; this.announceText = ""; this.subAnnounceText = "";
             this.sunriseTimer = 0;
+            this.spinCooldown = 0;
 
             this.tutPhase = 0; this.tutText = ""; this.tutTimer = 0;
             this.epiPhase = 0; this.epiTimer = 0;
@@ -291,9 +470,13 @@
             this.scenery = []; this.decals = []; this.damagePools = [];
 
             this.epiLines = [
-                "The Warlord's ashes scatter. The seal holds.",
-                "Without its master, the plague will slowly starve in the sunlight.",
-                "But until the last walking corpse is reduced to ash...",
+                "The Warlord's physical vessel is shattered.",
+                "The seal holds.",
+                "Sunlight turns its empty shell to ash...",
+                "...forcing its essence back underground.",
+                "It is not dead. The plague is eternal...",
+                "...and it will build a new body.",
+                "But as long as you draw breath...",
                 "...the Last Dojo stands ready.",
                 "ENDLESS MODE UNLOCKED."
             ];
@@ -305,6 +488,10 @@
             if (!['PLAYING', 'TUTORIAL', 'SUNRISE'].includes(this.state)) return;
             this.paused = !this.paused;
             if (this.paused) {
+                for (let k in this.keys) this.keys[k] = false;
+                this.player.isMoving = false;
+                this.player.isAttacking = false;
+                this.player.isSpinning = false;
                 hideAllMenus();
                 document.getElementById('pauseMenu').classList.remove('hidden');
             } else {
@@ -326,10 +513,16 @@
                 isAttacking: false, isSpinning: false, isMoving: false, attackTimer: 0, 
                 attackCost: 20, specialCost: 50, type: 'player', iFrames: 0, mutationGlow: 0 
             };
+            this.spinCooldown = 0; this.damageFlash = 0;
             this.enemies = []; this.boxes = []; this.loot = []; this.particles = []; this.floatTexts = []; this.projectiles = []; this.corpses = []; this.damagePools = [];
         }
 
-        saveScore() { if (this.dayCount > this.highScore && this.gameMode === 'SURVIVAL') { this.highScore = this.dayCount; localStorage.setItem('lastDojoHighScore', this.highScore); } }
+        saveScore() { 
+            if (['SURVIVAL', 'ENDLESS'].includes(this.gameMode)) {
+                this.highScore = Math.max(this.highScore, this.dayCount);
+                localStorage.setItem('lastDojoHighScore', this.highScore.toString()); 
+            }
+        }
 
         bindInput() {
             document.addEventListener('mousedown', (e) => {
@@ -347,24 +540,42 @@
             canvas.addEventListener('contextmenu', e => e.preventDefault());
             
             window.addEventListener('keydown', (e) => { 
-                if ([' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) e.preventDefault(); 
-                let key = e.key.toLowerCase(); if (this.keys.hasOwnProperty(key)) this.keys[key] = true; 
+                if(bindingAction) return;
+                let key = e.key.toLowerCase(); 
+                if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) e.preventDefault(); 
                 
+                if (key === userKeys.up) this.keys.up = true;
+                if (key === userKeys.down) this.keys.down = true;
+                if (key === userKeys.left) this.keys.left = true;
+                if (key === userKeys.right) this.keys.right = true;
+                if (key === userKeys.sleep) this.keys.sleep = true;
+                if (key === userKeys.eat) this.keys.eat = true;
+                if (key === userKeys.punch) this.keys.punch = true;
+                if (key === userKeys.spin) this.keys.spin = true;
+                if (key === userKeys.pause || key === 'escape') {
+                    this.keys.pause = true;
+                    if (['PLAYING', 'TUTORIAL', 'SUNRISE'].includes(this.state)) this.togglePause();
+                }
+
                 if (key === ' ' || key === 'enter') {
-                    if (this.state === 'GAMEOVER' || this.state === 'VICTORY') {
-                        restartGame(); this.keys[' '] = false; 
-                    }
+                    if (this.state === 'GAMEOVER' || this.state === 'VICTORY') { restartGame(); }
                 }
-                if (key === 'p' || key === 'escape') { if (['PLAYING', 'TUTORIAL', 'SUNRISE'].includes(this.state)) this.togglePause(); }
-                if (key === 'q' && (this.paused || this.state === 'GAMEOVER' || this.state === 'VICTORY')) {
-                    this.paused = false; quitToMenu();
-                }
+                if (key === 'q' && (this.paused || this.state === 'GAMEOVER' || this.state === 'VICTORY')) { this.paused = false; quitToMenu(); }
                 if (key === 'o' && this.paused) openSettings();
             });
             
             window.addEventListener('keyup', (e) => { 
-                let key = e.key.toLowerCase(); if (this.keys.hasOwnProperty(key)) this.keys[key] = false;
-                if (key === 'e') this.eReady = true; if (key === 'r') this.rReady = true; if (key === 'shift') this.shiftReady = true;
+                if(bindingAction) return;
+                let key = e.key.toLowerCase(); 
+                if (key === userKeys.up) this.keys.up = false;
+                if (key === userKeys.down) this.keys.down = false;
+                if (key === userKeys.left) this.keys.left = false;
+                if (key === userKeys.right) this.keys.right = false;
+                if (key === userKeys.punch) this.keys.punch = false;
+                if (key === userKeys.pause || key === 'escape') this.keys.pause = false;
+                if (key === userKeys.sleep) { this.keys.sleep = false; this.eReady = true; }
+                if (key === userKeys.eat) { this.keys.eat = false; this.rReady = true; }
+                if (key === userKeys.spin) { this.keys.spin = false; this.shiftReady = true; }
             });
             
             canvas.addEventListener('mousedown', (e) => {
@@ -376,6 +587,15 @@
         }
 
         rectIntersect(x1, y1, w1, h1, x2, y2, w2, h2) { return x1 < x2 + w2 && x1 + w1 > x2 && y1 < y2 + h2 && y1 + h1 > y2; }
+
+        hasInfiniteStamina() {
+            if (this.state === 'TUTORIAL' && this.isSiege) return true;
+            if (this.gameMode === 'ENDLESS') {
+                if (this.isSiege) return endlessConfig.infStamBM;
+                return endlessConfig.infStamReg;
+            }
+            return this.isSiege; 
+        }
 
         spawnBox() {
             let bx = (canvas.width / 2) + Math.random() * (canvas.width / 2 - 100); let by = Math.random() * (canvas.height - 200) + 100;
@@ -395,18 +615,35 @@
             if (type === 'warlord') actualType = 'warlord';
             
             let size = (actualType === 'brute') ? 50 : (actualType === 'warlord' ? 80 : 40); 
-            let baseSpeed = (actualType === 'brute') ? 0.5 : (actualType === 'warlord' ? 1.8 : 1.0 + (Math.random() * 0.5));
+            let baseSpeed = (actualType === 'brute') ? 0.5 : (actualType === 'warlord' ? 0.85 : 1.0 + (Math.random() * 0.5));
             let moveSpeed = Math.min(baseSpeed + Math.min(this.dayCount * 0.05, 1.5), 3.5); 
             if (this.isSiege && actualType !== 'brute' && actualType !== 'spitter' && actualType !== 'warlord') moveSpeed = Math.min(moveSpeed + 0.2, 3.5); 
             
             let hpPool = (actualType === 'brute') ? 120 : (actualType === 'spitter' ? 30 : 40);
             if (actualType === 'warlord') hpPool = (this.dayCount >= 35) ? 4000 : 2000;
 
+            if (this.gameMode === 'ENDLESS') {
+                if (actualType === 'warlord') { hpPool = Math.floor(hpPool * endlessConfig.bHealth); moveSpeed *= endlessConfig.bSpeed; size *= endlessConfig.bossSize;}
+                else { hpPool = Math.floor(hpPool * endlessConfig.zHealth); moveSpeed *= endlessConfig.zSpeed; }
+            }
+
+            let spawnX = x !== null ? x : (Math.random() > 0.5 ? -50 : canvas.width + 50);
+            let spawnY = y !== null ? y : (Math.random() * (canvas.height - 150) + 80);
+
+            if (actualType === 'warlord' && x === null) {
+                spawnX = canvas.width - 150;
+                spawnY = Math.max(80, Math.min(canvas.height - 120, this.player.y - 40));
+                this.addDecal(spawnX + size/2, spawnY + size, '#111', 2.0); 
+            }
+
+            let initialFacingRight = spawnX < this.player.x;
+
             this.enemies.push({ 
-                x: x !== null ? x : (Math.random() > 0.5 ? -50 : canvas.width + 50), y: y !== null ? y : (Math.random() * (canvas.height - 150) + 80), 
-                hp: hpPool, maxHp: hpPool, speed: moveSpeed, hitTimer: 0, biteTimer: 0, shootTimer: 60, type: actualType, burning: false, isMoving: true, facingRight: true, 
+                x: spawnX, y: spawnY, 
+                hp: hpPool, maxHp: hpPool, speed: moveSpeed, hitTimer: 0, biteTimer: 0, shootTimer: 60, type: actualType, burning: false, isMoving: true, facingRight: initialFacingRight, 
                 anchorX: anchorX, anchorY: anchorY, patrolDir: 1, w: size, h: size, aggroTarget: null,
-                dojoOffsetX: (Math.random() - 0.5) * 60, dojoOffsetY: (Math.random() - 0.5) * 30
+                dojoOffsetX: (Math.random() - 0.5) * 60, dojoOffsetY: (Math.random() - 0.5) * 30,
+                spawnTimer: (actualType === 'warlord' ? 120 : 0) 
             });
         }
 
@@ -420,10 +657,18 @@
         }
 
         doAttack(isSpin) {
-            if (this.player.stamina < (isSpin ? this.player.specialCost : this.player.attackCost) && !this.isSiege) return;
+            let stamCost = isSpin ? this.player.specialCost : this.player.attackCost;
+            if (this.gameMode === 'ENDLESS') stamCost *= endlessConfig.stamDrain;
+            
+            if (this.player.stamina < stamCost && !this.hasInfiniteStamina()) return;
+            
+            if (isSpin) {
+                this.spinCooldown = this.gameMode === 'ENDLESS' ? Math.floor(60 * endlessConfig.spinCd) : 60; 
+            }
+
             this.player.isAttacking = true; this.player.isSpinning = isSpin; this.player.attackTimer = isSpin ? 20 : 15; sfx.sfxSwing();
-            if (!this.isSiege) this.player.stamina -= isSpin ? this.player.specialCost : this.player.attackCost;
-            if (this.state === 'TUTORIAL') { if (this.tutPhase === 7 && isSpin) { this.tutPhase = 8; this.tutTimer = 60; sfx.sfxLore(); } }
+            if (!this.hasInfiniteStamina()) this.player.stamina -= stamCost;
+            if (this.state === 'TUTORIAL') { if (this.tutPhase === 9 && isSpin) { this.tutPhase = 10; this.tutTimer = 60; sfx.sfxLore(); } }
 
             let hitbox = isSpin ? { x: this.player.x - 40, y: this.player.y - 20, w: 120, h: 80 } : { x: this.player.facingRight ? this.player.x + 30 : this.player.x - 30, y: this.player.y - 10, w: 40, h: 60 };
             if (isSpin) { this.spawnParticles(this.player.x+20, this.player.y+20, '#fff', 20); this.shake = 8; }
@@ -431,13 +676,13 @@
         }
 
         processHits(hitbox, damage, knockbackDist, originX = this.player.x) {
-            if (['PLAYING', 'TUTORIAL', 'SUNRISE'].includes(this.state) || (this.state === 'TUTORIAL' && this.tutPhase >= 5)) {
+            if (['PLAYING', 'TUTORIAL', 'SUNRISE'].includes(this.state) || (this.state === 'TUTORIAL' && this.tutPhase >= 7)) {
                 if (this.rectIntersect(hitbox.x, hitbox.y, hitbox.w, hitbox.h, this.dummy.x, this.dummy.y, 40, 40)) {
                     this.dummy.hits++; this.spawnParticles(this.dummy.x+20, this.dummy.y+20, '#d2b48c', 5); this.shake = Math.max(this.shake, 2); sfx.sfxHit();
                     if (this.dummy.hits >= this.dummy.hitsNeeded) {
                         this.dummy.hits = 0; this.dummy.level++; this.dummy.hitsNeeded = Math.floor(this.dummy.hitsNeeded * 1.5); this.player.maxStamina += 15; this.player.stamina = this.player.maxStamina;
                         this.spawnParticles(originX+20, this.player.y+20, '#ffcc00', 30); this.spawnText(originX+20, this.player.y-20, "STAMINA UP!", "#ffcc00"); this.shake = 10; sfx.sfxLevelUp();
-                        if (this.state === 'TUTORIAL' && this.tutPhase === 6) { this.tutPhase = 7; this.tutTimer = 60; sfx.sfxLore(); }
+                        if (this.state === 'TUTORIAL' && this.tutPhase === 8) { this.tutPhase = 9; this.tutTimer = 60; sfx.sfxLore(); }
                     }
                 }
             }
@@ -454,24 +699,39 @@
             });
 
             this.enemies.forEach(z => {
+                if (z.spawnTimer > 0) return; 
+                
                 if (this.rectIntersect(hitbox.x, hitbox.y, hitbox.w, hitbox.h, z.x, z.y, z.w, z.h)) {
                     z.hp -= damage; z.hitTimer = 10; sfx.sfxHit();
+                    
+                    if (this.gameMode === 'ENDLESS' && endlessConfig.lifesteal > 0) {
+                        this.player.hp = Math.min(this.player.maxHp, this.player.hp + endlessConfig.lifesteal);
+                    }
+
                     let direction = (z.x + (z.w/2)) > (originX + 20) ? 1 : -1;
                     let actualKnockback = z.type === 'brute' ? knockbackDist / 4 : (this.isSiege ? knockbackDist * 2 : knockbackDist);
-                    if (z.type === 'warlord') actualKnockback = 0; 
-                    
+                    if (z.type === 'warlord') actualKnockback = knockbackDist / 6; 
+                    if (this.gameMode === 'ENDLESS') actualKnockback *= endlessConfig.knockback;
+
                     z.x += direction * actualKnockback; z.x = Math.max(0, Math.min(canvas.width - z.w, z.x));
                     this.spawnParticles(z.x+20, z.y+20, (z.type === 'spitter' ? '#cddc39' : '#d32f2f'), 8); this.spawnText(z.x+20, z.y, `-${damage}`, "#fff"); 
                     this.shake = Math.max(this.shake, z.type === 'brute' ? 8 : (z.type === 'warlord' ? 12 : 4)); 
                     
                     if (z.hp <= 0 && !z.handledDeath) {
-                        z.handledDeath = true; this.launchCorpse(z, direction); 
-                        this.addDecal(z.x + z.w/2, z.y + z.h, z.type === 'spitter' ? 'rgba(150, 200, 0, 0.4)' : 'rgba(120, 0, 0, 0.5)', z.type === 'brute' ? 1.5 : (z.type === 'warlord' ? 3.0 : 1.0));
+                        z.handledDeath = true; 
                         
                         if (z.type === 'warlord') { 
                             this.shake = 30; sfx.sfxExplode(); this.spawnParticles(z.x+40, z.y+40, '#d32f2f', 100); 
                             if (this.gameMode === 'SURVIVAL' && this.dayCount === 35 && this.isSiege && this.state === 'PLAYING') {
                                 this.triggerSunrise();
+                            }
+                        } else {
+                            this.launchCorpse(z, direction); 
+                            this.addDecal(z.x + z.w/2, z.y + z.h, z.type === 'spitter' ? 'rgba(150, 200, 0, 0.4)' : 'rgba(120, 0, 0, 0.5)', z.type === 'brute' ? 1.5 : 1.0);
+                            
+                            if (this.gameMode === 'ENDLESS' && endlessConfig.explodeZ) {
+                                this.damagePools.push({ x: z.x, y: z.y, life: 240 });
+                                this.spawnParticles(z.x+20, z.y+20, '#cddc39', 20); sfx.sfxExplode();
                             }
                         }
 
@@ -480,7 +740,10 @@
                             this.addDecal(z.x + z.w/2, z.y + z.h, 'rgba(20, 20, 20, 0.6)', 2.0); 
                             this.enemies.forEach(ez => { if (ez !== z && Math.hypot(ez.x - z.x, ez.y - z.y) < 120) { ez.hp -= 50; ez.burning = true; this.spawnText(ez.x+20, ez.y, "-50", "#ff9900"); } });
                         }
-                        if (Math.random() < 0.10) this.loot.push({ x: z.x, y: z.y, type: 'bandage' });
+                        
+                        let dropChance = this.gameMode === 'ENDLESS' ? endlessConfig.bandageDrop : 0.10;
+                        if (this.player.hp < this.player.maxHp * 0.3 && this.gameMode !== 'ENDLESS') dropChance = 0.25; 
+                        if (Math.random() < dropChance) this.loot.push({ x: z.x, y: z.y, type: 'bandage' });
                     }
                 }
             });
@@ -489,6 +752,9 @@
         triggerSunrise() {
             this.state = 'SUNRISE';
             this.sunriseTimer = 300; 
+            this.announceTimer = 300;
+            this.announceText = "SUNRISE";
+            this.subAnnounceText = "The Warlord burns!";
             this.enemies.forEach(z => z.burning = true);
             localStorage.setItem('lastDojoEndlessUnlocked', 'true');
             localStorage.setItem('lastDojoEpilogueUnlocked', 'true');
@@ -504,7 +770,7 @@
         }
 
         startEpilogue() {
-            sfx.sfxVictory(); this.state = 'EPILOGUE'; this.epiPhase = 0; this.epiTimer = 180;
+            sfx.sfxVictory(); this.state = 'EPILOGUE'; this.epiPhase = 0; this.epiTimer = 150;
         }
 
         startRun(mode) {
@@ -513,10 +779,17 @@
             this.gameMode = mode; sfx.init(); this.canRestart = false; 
             this.timeTimer = 1000; this.isDay = true; this.dayCount = 1; this.food = 0; this.sleepFade = 0;
             this.isSiege = false; this.shake = 0; this.paused = false; this.announceTimer = 0; this.hitStop = 0;
-            this.dojo.hp = this.dojo.maxHp; this.dummy.hits = 0; this.dummy.level = 1; this.dummy.hitsNeeded = 15;
+            this.subAnnounceText = ""; this.spinCooldown = 0; this.damageFlash = 0;
+            this.dojo.hp = this.gameMode === 'ENDLESS' ? endlessConfig.dojoHp : 300; 
+            this.dojo.maxHp = this.dojo.hp; this.dummy.hits = 0; this.dummy.level = 1; this.dummy.hitsNeeded = 15;
             this.frames = 0; this.decals = []; this.damagePools = []; this.generateScenery(); this.resetEntities();
+            
+            this.phaseDur = this.gameMode === 'ENDLESS' ? 1000 * endlessConfig.phaseLen : 1000;
+            this.timeTimer = this.phaseDur;
+
             this.state = 'PLAYING';
-            for(let i=0; i<3; i++) this.spawnBox(); 
+            let cratesToSpawn = this.gameMode === 'ENDLESS' ? endlessConfig.crates : 3;
+            for(let i=0; i<cratesToSpawn; i++) this.spawnBox(); 
         }
 
         startTutorial() {
@@ -525,7 +798,8 @@
             sfx.init(); this.canRestart = false;
             this.gameMode = 'TUTORIAL';
             this.isDay = true; this.food = 0; this.sleepFade = 0; this.isSiege = false; this.shake = 0; this.paused = false; this.hitStop = 0;
-            this.dojo.hp = this.dojo.maxHp; this.dummy.hits = 0;
+            this.subAnnounceText = ""; this.spinCooldown = 0; this.damageFlash = 0;
+            this.dojo.hp = 300; this.dojo.maxHp = 300; this.dummy.hits = 0;
             this.frames = 0; this.decals = []; this.damagePools = []; this.generateScenery(); this.resetEntities();
             this.state = 'TUTORIAL'; this.tutPhase = 0; this.tutTimer = 180;
             this.player.hp = 1000; this.player.maxHp = 1000; this.player.stamina = 100; this.player.condition = 100;
@@ -534,40 +808,49 @@
 
         updateTutorialLogic() {
             if (this.tutTimer > 0) this.tutTimer--;
+            let kU = getDisplayKey(userKeys.up); let kL = getDisplayKey(userKeys.left); let kD = getDisplayKey(userKeys.down); let kR = getDisplayKey(userKeys.right);
+            let kP = getDisplayKey(userKeys.punch); let kS = getDisplayKey(userKeys.spin); let kE = getDisplayKey(userKeys.sleep); let kEat = getDisplayKey(userKeys.eat);
+
             switch(this.tutPhase) {
                 case 0: this.tutText = "For centuries, our bloodline guarded the seal beneath this Dojo."; if (this.tutTimer <= 0) { this.tutPhase = 1; this.tutTimer = 180; } break;
                 case 1: this.tutText = "But time weakened the earth. The plague seeped out, raising the dead..."; if (this.tutTimer <= 0) { this.tutPhase = 2; this.tutTimer = 180; } break;
-                case 2: this.tutText = "...and feeding a Warlord deep below."; if (this.tutTimer <= 0) { this.tutPhase = 3; this.tutTimer = 180; } break;
-                case 3: this.tutText = "You are the last Master. You alone keep the Dojo standing."; if (this.tutTimer <= 0) { this.tutPhase = 4; this.tutTimer = 180; } break;
-                case 4: this.tutText = "The dead burn in the sunlight. But the nights are long."; if (this.tutTimer <= 0) { this.tutPhase = 5; this.tutTimer = 30; } break;
-                case 5: this.tutText = "Use W, A, S, D to move."; if (this.tutTimer <= 0 && this.player.isMoving) { this.tutPhase = 6; this.tutTimer = 30; sfx.sfxLore(); } break;
-                case 6: this.tutText = "Training increases Max Stamina. Level it up. (LEFT CLICK to Punch)"; break;
-                case 7: this.tutText = "When surrounded, the Hurricane creates space. (RIGHT CLICK to Spin)"; break;
-                case 8: this.tutText = "Attacks drain Stamina (Blue). Without it, you are defenseless. Exhaust it."; if (this.player.stamina <= 30) { this.tutPhase = 9; this.tutTimer = 120; sfx.sfxLore(); this.player.condition = 10; } break;
-                case 9: this.tutText = "Notice how slow Stamina recovers? It depends on your Condition (Yellow)."; if (this.tutTimer <= 0) { if (this.boxes.length === 0) this.spawnBox(); this.tutPhase = 10; this.tutTimer = 60; sfx.sfxLore(); } break;
-                case 10: this.tutText = "You are starving. Break the crate to scavenge meat."; if (this.food > 0) { this.tutPhase = 11; this.tutTimer = 60; sfx.sfxLore(); } break;
-                case 11: this.tutText = "Eat the meat to restore your Condition. (Press R to Eat)"; if (this.keys.r && this.rReady) { this.food--; this.player.condition = 100; this.spawnText(this.player.x+20, this.player.y, "+FOOD", "#44aa44"); this.rReady = false; this.tutPhase = 12; this.tutTimer = 60; sfx.sfxLore(); this.player.hp = 500; } break;
-                case 12: this.tutText = "Rest near the Dojo to heal HP (Red). (Press E near Dojo)"; if (this.keys.e && this.eReady && Math.abs(this.player.x - this.dojo.x) < 60 && Math.abs(this.player.y - this.dojo.y) < 60) { this.player.hp = 1000; this.sleepFade = 60; this.eReady = false; this.tutPhase = 13; this.tutTimer = 120; sfx.sfxLore(); } break;
-                case 13: 
+                case 2: 
+                    if (this.tutTimer === 179) { sfx.sfxWarlordRoar(); this.shake = 30; }
+                    this.tutText = "*KRRR-GAAAHH!* A massive tremor shakes the Dojo..."; 
+                    if (this.tutTimer <= 0) { this.tutPhase = 3; this.tutTimer = 240; } 
+                    break;
+                case 3: this.tutText = "The Warlord. An avatar of the plague building its body deep below."; if (this.tutTimer <= 0) { this.tutPhase = 4; this.tutTimer = 180; } break;
+                case 4: this.tutText = "It requires immense lunar energy to manifest. For now, we prepare."; if (this.tutTimer <= 0) { this.tutPhase = 5; this.tutTimer = 180; } break;
+                case 5: this.tutText = "You are the last Master. You alone keep the Dojo standing."; if (this.tutTimer <= 0) { this.tutPhase = 6; this.tutTimer = 180; } break;
+                case 6: this.tutText = "The dead burn in the sunlight. But the nights are long."; if (this.tutTimer <= 0) { this.tutPhase = 7; this.tutTimer = 30; } break;
+                case 7: this.tutText = `Use ${kU}, ${kL}, ${kD}, ${kR} to move.`; if (this.tutTimer <= 0 && this.player.isMoving) { this.tutPhase = 8; this.tutTimer = 30; sfx.sfxLore(); } break;
+                case 8: this.tutText = `Training increases Max Stamina. Level it up. (${kP} to Punch)`; break;
+                case 9: this.tutText = `When surrounded, the Hurricane creates space. (${kS} to Spin)`; break;
+                case 10: this.tutText = "Attacks drain Stamina (Blue). Without it, you are defenseless. Exhaust it."; if (this.player.stamina <= 30) { this.tutPhase = 11; this.tutTimer = 120; sfx.sfxLore(); this.player.condition = 10; } break;
+                case 11: this.tutText = "Notice how slow Stamina recovers? It depends on your Condition (Yellow)."; if (this.tutTimer <= 0) { if (this.boxes.length === 0) this.spawnBox(); this.tutPhase = 12; this.tutTimer = 60; sfx.sfxLore(); } break;
+                case 12: this.tutText = "You are starving. Break the crate to scavenge meat."; if (this.food > 0) { this.tutPhase = 13; this.tutTimer = 60; sfx.sfxLore(); } break;
+                case 13: this.tutText = `Eat the meat to restore your Condition. (Press ${kEat} to Eat)`; if (this.keys.eat && this.rReady) { this.food--; this.player.condition = 100; this.spawnText(this.player.x+20, this.player.y, "+FOOD", "#44aa44"); this.rReady = false; this.tutPhase = 14; this.tutTimer = 60; sfx.sfxLore(); this.player.hp = 500; } break;
+                case 14: this.tutText = `Rest near the Dojo to heal HP (Red). (Press ${kE} near Dojo)`; if (this.keys.sleep && this.eReady && Math.abs(this.player.x - this.dojo.x) < 60 && Math.abs(this.player.y - this.dojo.y) < 60) { this.player.hp = 1000; this.sleepFade = 60; this.eReady = false; this.tutPhase = 15; this.tutTimer = 120; sfx.sfxLore(); } break;
+                case 15: 
                     this.tutText = "Night falls. The dead hunt the living! Survive!"; 
                     this.isDay = false; this.isSiege = false; 
                     if (this.tutTimer === 60) { this.spawnZombie(null, null, 'night'); this.spawnZombie(null, null, 'night'); } 
-                    if (this.tutTimer <= 0 && this.enemies.length === 0) { this.tutPhase = 14; this.tutTimer = 180; sfx.sfxLore(); } 
+                    if (this.tutTimer <= 0 && this.enemies.length === 0) { this.tutPhase = 16; this.tutTimer = 180; sfx.sfxLore(); } 
                     break;
-                case 14: this.tutText = "But every 7th night, a Blood Moon rises!"; if (this.tutTimer <= 0) { this.tutPhase = 15; this.tutTimer = 180; sfx.sfxLore(); } break;
-                case 15: 
+                case 16: this.tutText = "But every 7th night, a Blood Moon rises!"; if (this.tutTimer <= 0) { this.tutPhase = 17; this.tutTimer = 180; sfx.sfxLore(); } break;
+                case 17: 
                     this.tutText = "They ignore you to break the seal! Defend the Dojo! (INFINITE STAMINA)"; 
                     this.isSiege = true;
                     if (this.tutTimer === 120) { this.spawnZombie(null, null, 'night'); this.spawnZombie(null, null, 'night'); } 
                     if (this.tutTimer <= 0 && this.enemies.length === 0) { 
-                        this.tutPhase = 16; this.tutTimer = 180; sfx.sfxLore(); 
+                        this.tutPhase = 18; this.tutTimer = 180; sfx.sfxLore(); 
                         this.player.mutationGlow = 180; this.player.maxHp += 50; this.player.hp = this.player.maxHp; 
                         sfx.sfxLevelUp(); this.spawnText(this.player.x+20, this.player.y-40, "MUTATION: MAX HP UP!", "#d32f2f"); 
                         this.isSiege = false; this.isDay = true;
                     } 
                     break;
-                case 16: this.tutText = "...surviving its radiation mutates your blood, making you stronger."; if (this.tutTimer <= 0) { this.tutPhase = 17; this.tutTimer = 180; sfx.sfxLore(); } break;
-                case 17: this.tutText = "Your awakening is complete. Now, survive the true nightmare."; if (this.tutTimer <= 0) { localStorage.setItem('lastDojoPrologueDone', 'true'); document.getElementById('mainMenu').classList.remove('hidden'); this.state = 'START'; renderMenuButtons(); } break;
+                case 18: this.tutText = "...surviving its radiation mutates your blood, making you stronger."; if (this.tutTimer <= 0) { this.tutPhase = 19; this.tutTimer = 180; sfx.sfxLore(); } break;
+                case 19: this.tutText = "Your awakening is complete. Now, survive the true nightmare."; if (this.tutTimer <= 0) { localStorage.setItem('lastDojoPrologueDone', 'true'); document.getElementById('mainMenu').classList.remove('hidden'); this.state = 'START'; renderMenuButtons(); } break;
             }
         }
 
@@ -575,7 +858,7 @@
             if (this.epiTimer > 0) this.epiTimer--;
             if (this.epiTimer <= 0) {
                 if (this.epiPhase < this.epiLines.length - 1) {
-                    this.epiPhase++; this.epiTimer = 180;
+                    this.epiPhase++; this.epiTimer = 150; 
                 } else {
                     document.getElementById('mainMenu').classList.remove('hidden'); this.state = 'START'; renderMenuButtons();
                 }
@@ -587,32 +870,53 @@
             if (!['PLAYING', 'TUTORIAL', 'SUNRISE'].includes(this.state)) return;
             if (this.sleepFade > 0) { this.sleepFade--; if (this.sleepFade === 30 && this.state === 'PLAYING') this.timeTimer = 0; return; }
             if (this.hitStop > 0) { this.hitStop--; return; } 
+            if (this.damageFlash > 0) this.damageFlash--;
 
-            this.player.isMoving = (this.keys.w || this.keys.a || this.keys.s || this.keys.d);
+            this.player.isMoving = (this.keys.up || this.keys.left || this.keys.down || this.keys.right);
             this.frames++;
             
+            if (this.spinCooldown > 0) this.spinCooldown--; 
+
             if (this.player.iFrames > 0) this.player.iFrames--;
             if (this.player.mutationGlow > 0) this.player.mutationGlow--; 
 
             this.decals.forEach(d => d.life--); this.decals = this.decals.filter(d => d.life > 0);
             
+            let oldHp = this.player.hp;
             this.damagePools.forEach(dp => {
                 dp.life--;
                 if (this.player.iFrames <= 0 && Math.hypot((this.player.x+20) - dp.x, (this.player.y+20) - dp.y) < 40) {
-                    this.player.hp = Math.max(0, this.player.hp - 1.5); this.shake = Math.max(this.shake, 2);
+                    let pDmg = 1.5;
+                    if (this.gameMode === 'ENDLESS' && endlessConfig.ohk) pDmg = 9999;
+                    this.player.hp = Math.max(0, this.player.hp - pDmg); 
+                    this.shake = Math.max(this.shake, 2);
                 }
             });
             this.damagePools = this.damagePools.filter(dp => dp.life > 0);
+            if (this.player.hp < oldHp) this.damageFlash = 20;
 
             if (this.isSiege && ['PLAYING', 'SUNRISE', 'TUTORIAL'].includes(this.state)) {
                 this.player.stamina = this.player.maxStamina; this.player.condition = this.player.maxCondition;
+            } else if (this.hasInfiniteStamina()) {
+                this.player.stamina = this.player.maxStamina;
             }
 
             if (this.state === 'SUNRISE') {
                 this.sunriseTimer--;
                 this.enemies.forEach(z => { 
                     z.burning = true; 
-                    z.hp -= (z.type === 'warlord' ? 50 : 3); 
+                    if (z.type === 'warlord') {
+                        if (this.sunriseTimer > 50) {
+                            if (this.sunriseTimer % 15 === 0) {
+                                this.shake = 8; sfx.sfxExplode();
+                                this.spawnParticles(z.x + Math.random() * z.w, z.y + Math.random() * z.h, '#ff9900', 40);
+                            }
+                        } else if (this.sunriseTimer === 50) {
+                            z.hp = 0;
+                        }
+                    } else {
+                        z.hp -= 5;
+                    }
                 }); 
                 if (this.sunriseTimer <= 0) {
                     this.triggerVictory();
@@ -628,10 +932,20 @@
                         this.triggerSunrise(); return;
                     }
 
-                    this.timeTimer = this.phaseDur; this.isDay = !this.isDay; this.announceTimer = 180; 
+                    this.timeTimer = this.phaseDur; this.isDay = !this.isDay; this.announceTimer = 180; this.subAnnounceText = "";
                     if (this.isDay) {
                         this.dayCount++; this.isSiege = false; this.announceText = "DAY " + this.dayCount;
                         
+                        // LAVA MUTATOR FIX: Add pool, remove oldest if over limit to prevent memory leak
+                        if (this.gameMode === 'ENDLESS' && endlessConfig.lavaMode) {
+                            this.damagePools.push({ x: Math.random()*canvas.width, y: Math.random()*canvas.height, life: 999999 });
+                            let lavaCount = this.damagePools.filter(dp => dp.life > 100000).length;
+                            if (lavaCount > 30) {
+                                let oldestLavaIdx = this.damagePools.findIndex(dp => dp.life > 100000);
+                                if (oldestLavaIdx > -1) this.damagePools.splice(oldestLavaIdx, 1);
+                            }
+                        }
+
                         if ((this.dayCount - 1) % 7 === 0 && (this.dayCount - 1) > 0) {
                             this.player.mutationGlow = 180; sfx.sfxLevelUp();
                             if (this.player.maxHp < 200) {
@@ -642,25 +956,52 @@
                                 this.spawnText(this.player.x+20, this.player.y-40, "MUTATION: LIMIT REACHED", "#d32f2f");
                                 this.spawnText(this.player.x+20, this.player.y-20, "FULL HEAL", "#44aa44");
                             }
+                            
+                            if (this.dayCount - 1 < 35 || this.gameMode === 'ENDLESS') {
+                                sfx.sfxFrustratedGroan();
+                                this.shake = 10;
+                                if (this.dayCount === 8) this.subAnnounceText = "The presence recedes, unsatisfied.";
+                                else if (this.dayCount === 15) this.subAnnounceText = "A hollow rage echoes from the depths...";
+                                else if (this.dayCount === 22) this.subAnnounceText = "The ground cracks in frustration...";
+                                else if (this.dayCount === 29) this.subAnnounceText = "It will not hide in the dark much longer...";
+                            }
                         }
 
                         this.enemies.forEach(z => { if (z.type !== 'straggler') z.burning = true; });
-                        for(let i=0; i<3; i++) this.spawnBox(); 
-                        this.loot = []; this.projectiles = []; this.corpses = []; this.damagePools = [];
+                        let cratesToSpawn = this.gameMode === 'ENDLESS' ? endlessConfig.crates : 3;
+                        for(let i=0; i<cratesToSpawn; i++) this.spawnBox(); 
+                        this.loot = []; this.projectiles = []; this.corpses = []; 
+                        this.damagePools = this.damagePools.filter(dp => dp.life > 100000); 
+                        
+                        if (this.gameMode === 'ENDLESS' && endlessConfig.dojoRegen) {
+                            this.dojo.hp = Math.min(this.dojo.maxHp, this.dojo.hp + (this.dojo.maxHp * 0.25));
+                            this.spawnParticles(this.dojo.x+30, this.dojo.y+20, '#4caf50', 20);
+                        }
+
                     } else {
                         this.boxes = []; this.enemies.forEach(z => { if (z.type === 'straggler') z.type = 'night'; });
-                        if (this.dayCount % 7 === 0) { 
+                        
+                        let bmTrigger = this.dayCount % 7 === 0;
+                        if (this.gameMode === 'ENDLESS') bmTrigger = this.dayCount % endlessConfig.bmFreq === 0;
+
+                        if (bmTrigger) { 
                             this.isSiege = true; this.dojo.hp = this.dojo.maxHp; this.announceText = "BLOOD MOON SIEGE"; 
                             
-                            if (this.dayCount === 14 || this.dayCount === 28) {
-                                this.spawnZombie(canvas.width/2 - 40, canvas.height + 50, 'warlord'); 
-                            } else if (this.dayCount === 35 && this.gameMode === 'SURVIVAL') {
-                                this.spawnZombie(canvas.width/2 - 40, canvas.height + 50, 'warlord'); 
-                            } else if (this.gameMode === 'ENDLESS' && this.dayCount >= 35) {
-                                let warlordCount = Math.floor(this.dayCount / 14);
-                                for(let w=0; w<warlordCount; w++) this.spawnZombie(null, canvas.height + 50, 'warlord');
+                            if (this.dayCount === 35 && this.gameMode === 'SURVIVAL') {
+                                this.subAnnounceText = "FINE. I WILL TEAR IT DOWN MYSELF.";
+                                this.spawnZombie(null, null, 'warlord'); 
+                            } else if (this.gameMode === 'ENDLESS' && this.dayCount % endlessConfig.bossFreq === 0) {
+                                this.subAnnounceText = "THE HORDE RETURNS.";
+                                let warlordCount = Math.min(endlessConfig.bossCap, 1 + Math.floor((this.dayCount - endlessConfig.bossFreq) / 14));
+                                for(let w=0; w<warlordCount; w++) this.spawnZombie(null, null, 'warlord');
+                            } else {
+                                sfx.sfxWarlordRoar();
+                                this.shake = 15;
+                                if (this.dayCount === 7) this.subAnnounceText = "A dark hunger stirs beneath the soil...";
+                                else if (this.dayCount === 14) this.subAnnounceText = "The earth trembles. Something tests the seal...";
+                                else if (this.dayCount === 21) this.subAnnounceText = "It grows furious with its mindless puppets...";
+                                else if (this.dayCount === 28) this.subAnnounceText = "The soil boils. Its patience is gone.";
                             }
-
                         } else {
                             this.announceText = "NIGHT " + this.dayCount;
                         }
@@ -668,17 +1009,25 @@
                 }
                 if (this.announceTimer > 0) this.announceTimer--;
 
+                let maxEndlessZ = this.gameMode === 'ENDLESS' ? endlessConfig.maxZ : 25;
                 let activeZombies = this.enemies.filter(z => (z.type !== 'straggler' && z.type !== 'warlord') && z.hp > 0).length;
-                let maxZombies = this.isSiege ? 15 : Math.min(25, 8 + (this.dayCount * 2)); 
-                let spawnRate = this.isSiege ? 0.05 : 0.02 + (this.dayCount * 0.005);
-                if (!this.isDay && activeZombies < maxZombies && Math.random() < spawnRate) this.spawnZombie(null, null, 'night');
+                let maxZombies = this.isSiege ? 15 : Math.min(maxEndlessZ, 8 + (this.dayCount * 2)); 
+                let baseSpawn = this.gameMode === 'ENDLESS' ? 0.02 * endlessConfig.spawnRate : 0.02;
+                let spawnRate = this.isSiege ? 0.05 : baseSpawn + (this.dayCount * 0.005);
+                
+                if (!this.isDay && this.announceTimer <= 0 && activeZombies < maxZombies && Math.random() < spawnRate) {
+                    this.spawnZombie(null, null, 'night');
+                }
             }
 
             let currentAttackCost = this.isSiege ? 0 : this.player.attackCost; let currentSpecialCost = this.isSiege ? 0 : this.player.specialCost;
-            if ((this.keys[' '] || this.mouse.left) && !this.player.isAttacking && this.player.stamina >= currentAttackCost) this.doAttack(false);
-            if ((this.keys.shift || this.mouse.right) && !this.player.isAttacking && this.player.stamina >= currentSpecialCost) { this.doAttack(true); this.shiftReady = false; }
+            if ((this.keys.punch || this.mouse.left) && !this.player.isAttacking && (this.player.stamina >= currentAttackCost || this.hasInfiniteStamina())) this.doAttack(false);
             
-            if (this.keys.r && this.rReady && this.state !== 'TUTORIAL' && !this.isSiege) { 
+            if ((this.keys.spin || this.mouse.right) && !this.player.isAttacking && (this.player.stamina >= currentSpecialCost || this.hasInfiniteStamina()) && this.spinCooldown <= 0) { 
+                this.doAttack(true); this.shiftReady = false; 
+            }
+            
+            if (this.keys.eat && this.rReady && this.state !== 'TUTORIAL' && !this.isSiege) { 
                 if (this.food > 0 && this.player.condition < 100) {
                     this.food--; this.player.condition = Math.min(100, this.player.condition + 30); 
                     let healAmount = Math.min(this.player.maxHp - this.player.hp, 5); this.player.hp += healAmount;
@@ -687,18 +1036,23 @@
                 this.rReady = false; 
             }
 
-            if (this.keys.a && !this.keys.d) { this.player.x -= this.player.speed; this.player.facingRight = false; }
-            if (this.keys.d && !this.keys.a) { this.player.x += this.player.speed; this.player.facingRight = true; }
-            if (this.keys.w && !this.keys.s) this.player.y -= this.player.speed;
-            if (this.keys.s && !this.keys.w) this.player.y += this.player.speed;
+            let pSpeed = this.player.speed;
+            if (this.gameMode === 'ENDLESS') pSpeed *= endlessConfig.pSpeed;
+
+            if (this.keys.left && !this.keys.right) { this.player.x -= pSpeed; this.player.facingRight = false; }
+            if (this.keys.right && !this.keys.left) { this.player.x += pSpeed; this.player.facingRight = true; }
+            if (this.keys.up && !this.keys.down) this.player.y -= pSpeed;
+            if (this.keys.down && !this.keys.up) this.player.y += pSpeed;
             this.player.x = Math.max(0, Math.min(canvas.width - this.player.size, this.player.x)); this.player.y = Math.max(80, Math.min(canvas.height - this.player.size, this.player.y)); 
 
-            let regenRate = 0.1 + (this.player.condition / 100) * 1.5; if (!this.player.isAttacking && this.player.stamina < this.player.maxStamina && !this.isSiege) this.player.stamina += regenRate;
+            let regenRate = 0.1 + (this.player.condition / 100) * 1.5; 
+            if (!this.player.isAttacking && this.player.stamina < this.player.maxStamina && !this.isSiege && !this.hasInfiniteStamina()) this.player.stamina += regenRate;
 
-            if (this.keys.e && this.eReady && this.isDay && Math.abs(this.player.x - this.dojo.x) < 60 && Math.abs(this.player.y - this.dojo.y) < 60 && this.state !== 'TUTORIAL') {
+            if (this.keys.sleep && this.eReady && this.isDay && Math.abs(this.player.x - this.dojo.x) < 60 && Math.abs(this.player.y - this.dojo.y) < 60 && this.state !== 'TUTORIAL') {
                 let timeRemainingPct = this.timeTimer / this.phaseDur; 
                 let healAmount = Math.floor(this.player.maxHp * (0.1 + (timeRemainingPct * 0.4))); 
-                this.player.condition = this.player.maxCondition; this.player.hp = Math.min(this.player.maxHp, this.player.hp + healAmount);
+                this.player.condition = this.player.maxCondition; 
+                this.player.hp = Math.min(this.player.maxHp, this.player.hp + healAmount);
                 this.spawnParticles(this.player.x+15, this.player.y+15, '#44aa44', 15); this.spawnText(this.player.x+20, this.player.y, `+${healAmount} HP`, "#44aa44");
                 this.sleepFade = 60; this.eReady = false; 
             }
@@ -706,14 +1060,21 @@
             this.loot.forEach((item, index) => {
                 if (this.rectIntersect(this.player.x, this.player.y, 40, 40, item.x, item.y, 30, 30)) {
                     if (item.type === 'bandage') { 
-                        let heal = Math.min(this.player.maxHp - this.player.hp, 20); this.player.hp += heal; 
-                        this.spawnParticles(this.player.x+15, this.player.y+15, '#44aa44', 15); if (heal > 0) this.spawnText(this.player.x+20, this.player.y, `+${heal}`, "#44aa44");
-                    } else if (item.type === 'food') this.food++;
+                        let healAmount = Math.floor(this.player.maxHp * 0.25);
+                        let heal = Math.min(this.player.maxHp - this.player.hp, healAmount); 
+                        this.player.hp += heal; 
+                        this.spawnParticles(this.player.x+15, this.player.y+15, '#44aa44', 15); 
+                        if (heal > 0) this.spawnText(this.player.x+20, this.player.y, `+${heal}`, "#44aa44");
+                    } else if (item.type === 'food') {
+                        this.food++;
+                    }
                     this.loot.splice(index, 1); 
                 }
             });
 
             if (this.player.isAttacking) { this.player.attackTimer--; if (this.player.attackTimer <= 0) { this.player.isAttacking = false; this.player.isSpinning = false; } }
+
+            let curHp = this.player.hp;
 
             this.projectiles.forEach((p, index) => {
                 p.x += p.vx; p.y += p.vy; p.life--; let exploded = false;
@@ -735,16 +1096,27 @@
                     if (!p.reflected) { this.damagePools.push({ x: p.x, y: p.y, life: 240 }); }
 
                     if (Math.hypot((this.player.x + 20) - p.x, (this.player.y + 20) - p.y) < 50 && this.player.iFrames <= 0) {
-                        this.player.hp = Math.max(0, this.player.hp - 10); this.player.condition = Math.max(0, this.player.condition - 5); 
-                        this.spawnText(this.player.x+20, this.player.y, "-10 (Toxic)", "#cddc39"); this.shake = Math.max(this.shake, 5); this.player.iFrames = 45;
+                        let pDmg = 10;
+                        if (this.gameMode === 'ENDLESS') {
+                            if (endlessConfig.ohk) pDmg = 9999;
+                            else pDmg = Math.floor(10 * endlessConfig.zDamage);
+                        }
+                        this.player.hp = Math.max(0, this.player.hp - pDmg); 
+                        this.player.condition = Math.max(0, this.player.condition - 5); 
+                        this.spawnText(this.player.x+20, this.player.y, `-${pDmg} (Toxic)`, "#cddc39"); this.shake = Math.max(this.shake, 5); this.player.iFrames = 45;
                     }
                     this.enemies.forEach(z => {
                         if (Math.hypot((z.x + z.w/2) - p.x, (z.y + z.h/2) - p.y) < 60) {
                             let dmg = p.reflected ? 60 : 20; z.hp -= dmg; this.spawnText(z.x + (z.w/2), z.y, `-${dmg}`, p.reflected ? "#00ffff" : "#cddc39");
                             if (!p.reflected && p.owner && p.owner !== z && p.owner.hp > 0) { z.aggroTarget = p.owner; }
                             if(z.hp <= 0 && !z.handledDeath) { 
-                                z.handledDeath = true; this.launchCorpse(z, p.vx > 0 ? 1 : -1); 
+                                z.handledDeath = true; 
+                                this.launchCorpse(z, p.vx > 0 ? 1 : -1); 
                                 this.addDecal(z.x + z.w/2, z.y + z.h, z.type === 'spitter' ? 'rgba(150, 200, 0, 0.4)' : 'rgba(120, 0, 0, 0.5)', z.type === 'brute' ? 1.5 : 1.0);
+                                if (this.gameMode === 'ENDLESS' && endlessConfig.explodeZ) {
+                                    this.damagePools.push({ x: z.x, y: z.y, life: 240 });
+                                    this.spawnParticles(z.x+20, z.y+20, '#cddc39', 20); sfx.sfxExplode();
+                                }
                             }
                         }
                     });
@@ -752,13 +1124,27 @@
             });
 
             this.enemies.forEach(z => {
+                if (z.spawnTimer > 0) { 
+                    z.spawnTimer--; 
+                    if (z.spawnTimer % 5 === 0) {
+                        this.spawnParticles(z.x + z.w/2 + (Math.random()*40-20), z.y + z.h, Math.random() > 0.5 ? '#5d4037' : '#333333', 5);
+                        if (z.type === 'warlord' && z.spawnTimer % 20 === 0) this.shake = Math.max(this.shake, 5); 
+                    }
+                    return; 
+                } 
+                
                 if (z.burning) { 
-                    z.hp -= (z.type === 'warlord' ? 50 : 3); 
-                    if (Math.random() < 0.2) this.spawnParticles(z.x+20, z.y+20, '#ff9900', 1); 
+                    if (z.type === 'warlord' && this.state === 'SUNRISE') {
+                        return; // Boss detonation is handled in the sunrise logic
+                    } else {
+                        z.hp -= (z.type === 'warlord' ? 150 : 3); 
+                        if (Math.random() < 0.2) this.spawnParticles(z.x+20, z.y+20, '#ff9900', 1); 
+                    }
+                    
                     if (z.hp <= 0 && !z.handledDeath) { 
                         z.handledDeath = true;
                         if (z.type === 'warlord') {
-                            this.shake = 30; sfx.sfxExplode(); this.spawnParticles(z.x+40, z.y+40, '#ff9900', 100);
+                            this.shake = 30; sfx.sfxExplode(); this.spawnParticles(z.x+40, z.y+40, '#ff9900', 200);
                         } else {
                             this.spawnParticles(z.x+20, z.y+20, '#444444', 30); sfx.sfxHit(); 
                         }
@@ -818,6 +1204,9 @@
                     
                     if (!z.burning && !isBloodMoonDrone && z.biteTimer <= 0 && this.player.iFrames <= 0 && this.rectIntersect(zBox.x, zBox.y, zBox.w, zBox.h, pHurtbox.x, pHurtbox.y, pHurtbox.w, pHurtbox.h)) {
                         let dmg = z.type === 'brute' ? 20 : (z.type === 'warlord' ? 40 : 10); 
+                        if (this.gameMode === 'ENDLESS' && z.type !== 'warlord') dmg = Math.floor(dmg * endlessConfig.zDamage);
+                        if (this.gameMode === 'ENDLESS' && endlessConfig.ohk) dmg = 9999;
+
                         this.player.hp = Math.max(0, this.player.hp - dmg); 
                         z.biteTimer = 60; this.player.iFrames = 45; 
                         this.spawnParticles(this.player.x+20, this.player.y+20, '#d32f2f', 10); this.spawnText(this.player.x+20, this.player.y, `-${dmg}`, "#d32f2f"); this.shake = z.type === 'brute' ? 12 : (z.type === 'warlord' ? 20 : 6); sfx.sfxHit();
@@ -828,10 +1217,18 @@
                     }
 
                     if (!z.burning && isBloodMoonDrone && z.biteTimer <= 0 && this.rectIntersect(zBox.x, zBox.y, zBox.w, zBox.h, this.dojo.x - 20, this.dojo.y - 20, this.dojo.w + 40, this.dojo.h + 40) && ['PLAYING', 'TUTORIAL'].includes(this.state)) {
-                        this.dojo.hp = Math.max(0, this.dojo.hp - 5); z.biteTimer = 60; this.spawnParticles(this.dojo.x+30, this.dojo.y+20, '#1b5e20', 5); this.spawnText(this.dojo.x+30, this.dojo.y, "-5", "#ffcc00"); this.shake = 3; sfx.sfxHit();
+                        let dDmg = 5;
+                        if (this.gameMode === 'ENDLESS') {
+                            if (endlessConfig.ohk) dDmg = 9999;
+                            else dDmg = Math.floor(5 * endlessConfig.zDamage);
+                        }
+                        this.dojo.hp = Math.max(0, this.dojo.hp - dDmg); 
+                        z.biteTimer = 60; this.spawnParticles(this.dojo.x+30, this.dojo.y+20, '#1b5e20', 5); this.spawnText(this.dojo.x+30, this.dojo.y, `-${dDmg}`, "#ffcc00"); this.shake = 3; sfx.sfxHit();
                     }
                 }
             });
+
+            if (this.player.hp < oldHp) this.damageFlash = 20;
 
             this.corpses.forEach(c => { c.x += c.vx; c.y += c.vy; c.vy += 0.5; c.rot += c.spin; if (c.y > canvas.height - 40) { c.y = canvas.height - 40; c.vy *= -0.4; c.vx *= 0.5; c.spin *= 0.5; } c.life--; });
             if (this.shake > 0) this.shake *= 0.9; if (this.shake < 0.5) this.shake = 0;
@@ -884,6 +1281,18 @@
             grad.addColorStop(0, `rgba(${Math.floor(r)}, ${Math.floor(g)}, ${Math.floor(b)}, ${a * 0.2})`);
             grad.addColorStop(1, `rgba(${Math.floor(r)}, ${Math.floor(g)}, ${Math.floor(b)}, ${a})`);
             ctx.fillStyle = grad; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            if (this.gameMode === 'ENDLESS' && endlessConfig.pitchBlack) {
+                ctx.fillStyle = 'rgba(0,0,0,0.96)';
+                ctx.fillRect(0,0,canvas.width, canvas.height);
+                ctx.globalCompositeOperation = 'destination-out';
+                let pbGrad = ctx.createRadialGradient(this.player.x+20, this.player.y+20, 10, this.player.x+20, this.player.y+20, 130);
+                pbGrad.addColorStop(0, 'rgba(255,255,255,1)');
+                pbGrad.addColorStop(1, 'rgba(255,255,255,0)');
+                ctx.fillStyle = pbGrad;
+                ctx.beginPath(); ctx.arc(this.player.x+20, this.player.y+20, 130, 0, Math.PI*2); ctx.fill();
+                ctx.globalCompositeOperation = 'source-over';
+            }
         }
 
         draw() {
@@ -896,7 +1305,8 @@
             ctx.globalAlpha = 1.0; 
 
             this.damagePools.forEach(dp => {
-                ctx.globalAlpha = dp.life / 240; ctx.fillStyle = "#cddc39"; 
+                ctx.globalAlpha = Math.min(1, dp.life / 240); ctx.fillStyle = "#cddc39"; 
+                if (dp.life > 100000) { ctx.fillStyle = "#ff5500"; ctx.globalAlpha = 0.7 + Math.sin(this.frames*0.1)*0.2; } 
                 ctx.beginPath(); ctx.ellipse(dp.x, dp.y, 40, 20, 0, 0, Math.PI*2); ctx.fill();
             });
             ctx.globalAlpha = 1.0; 
@@ -925,13 +1335,13 @@
             this.loot.forEach(item => { ctx.drawImage(item.type === 'food' ? sprMeat : sprBandage, item.x + 5, item.y + 5); });
             this.boxes.forEach(b => ctx.drawImage(sprBox, b.x, b.y));
             this.projectiles.forEach(p => { ctx.fillStyle = p.reflected ? '#00ffff' : '#cddc39'; ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI*2); ctx.fill(); ctx.shadowBlur = 10; ctx.shadowColor = p.reflected ? '#00ffff' : '#cddc39'; ctx.fill(); ctx.shadowBlur = 0; });
-            this.corpses.forEach(c => { ctx.globalAlpha = c.life / 100; drawCharacter(ctx, c, this.frames); ctx.globalAlpha = 1.0; });
+            this.corpses.forEach(c => { ctx.globalAlpha = c.life / 100; drawCharacter(ctx, c, this.frames, this.gameMode); ctx.globalAlpha = 1.0; });
             this.enemies.forEach(z => { 
-                if (z.burning) ctx.globalAlpha = Math.max(0, z.hp / z.maxHp); 
-                drawCharacter(ctx, z, this.frames); 
+                if (z.burning && z.type !== 'warlord') ctx.globalAlpha = Math.max(0, z.hp / z.maxHp); 
+                drawCharacter(ctx, z, this.frames, this.gameMode); 
                 if (z.hitTimer > 0) { ctx.globalCompositeOperation = 'source-atop'; ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.fillRect(z.x, z.y, z.w, z.h); ctx.globalCompositeOperation = 'source-over'; } 
                 
-                if (z.type === 'warlord' && z.hp > 0) {
+                if (z.type === 'warlord' && z.hp > 0 && z.spawnTimer <= 0 && this.state !== 'SUNRISE') {
                     ctx.fillStyle = "#222"; ctx.fillRect(z.x, z.y - 10, z.w, 6); ctx.fillStyle = "#d32f2f"; ctx.fillRect(z.x, z.y - 10, (z.hp/z.maxHp)*z.w, 6); ctx.strokeStyle = "#000"; ctx.strokeRect(z.x, z.y - 10, z.w, 6);
                 }
                 ctx.globalAlpha = 1.0; 
@@ -948,7 +1358,7 @@
 
                 ctx.save(); 
                 if (this.player.iFrames > 0 && Math.floor(this.frames / 4) % 2 === 0) ctx.globalAlpha = 0.3; 
-                drawCharacter(ctx, this.player, this.frames); 
+                drawCharacter(ctx, this.player, this.frames, this.gameMode); 
                 ctx.restore();
             }
 
@@ -967,6 +1377,11 @@
             ctx.restore(); 
             this.drawLighting();
 
+            if (this.damageFlash > 0) {
+                ctx.fillStyle = `rgba(255, 0, 0, ${this.damageFlash / 40})`; 
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+
             if (this.paused && ['PLAYING', 'TUTORIAL', 'SUNRISE'].includes(this.state)) { 
                 ctx.fillStyle = "rgba(0, 0, 0, 0.6)"; ctx.fillRect(0, 0, canvas.width, canvas.height); 
             }
@@ -975,7 +1390,8 @@
                 if (this.tutPhase <= 4) {
                     ctx.fillStyle = "rgba(0,0,0,1)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
                     ctx.fillStyle = "#ffb300"; ctx.font = "bold 20px Courier"; ctx.textAlign = "center";
-                    ctx.fillText(this.tutText, canvas.width/2, canvas.height/2);
+                    if (this.tutPhase !== 2) ctx.fillText(this.tutText, canvas.width/2, canvas.height/2);
+                    else if (this.tutPhase === 2 && this.tutTimer < 179) ctx.fillText(this.tutText, canvas.width/2, canvas.height/2);
                 } else {
                     ctx.fillStyle = "rgba(0,0,0,0.7)"; ctx.fillRect(0, canvas.height - 80, canvas.width, 80);
                     ctx.fillStyle = "#ffcc00"; ctx.font = "bold 22px Courier"; ctx.textAlign = "center";
@@ -984,15 +1400,25 @@
             }
             
             if (this.state === 'EPILOGUE') {
-                ctx.fillStyle = "rgba(0,0,0,1)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = "rgba(0,0,0,0.95)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
                 ctx.fillStyle = "#ffb300"; ctx.font = "bold 24px Courier"; ctx.textAlign = "center";
                 ctx.fillText(this.epiLines[this.epiPhase], canvas.width/2, canvas.height/2);
             }
 
-            if (this.announceTimer > 0 && this.state !== 'TUTORIAL') { let alpha = this.announceTimer > 60 ? 1 : this.announceTimer / 60; ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`; ctx.font = "bold 60px Courier"; ctx.textAlign = "center"; ctx.fillText(this.announceText, canvas.width/2, canvas.height/4); }
+            if (this.announceTimer > 0 && this.state !== 'TUTORIAL') { 
+                let alpha = this.announceTimer > 60 ? 1 : this.announceTimer / 60; 
+                ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`; 
+                ctx.font = "bold 60px Courier"; ctx.textAlign = "center"; 
+                ctx.fillText(this.announceText, canvas.width/2, canvas.height/4); 
+                
+                if (this.subAnnounceText) {
+                    ctx.fillStyle = `rgba(211, 47, 47, ${alpha})`; 
+                    ctx.font = "bold 24px Courier"; 
+                    ctx.fillText(this.subAnnounceText, canvas.width/2, canvas.height/4 + 50); 
+                }
+            }
             if (this.sleepFade > 0) { let alpha = this.sleepFade > 30 ? (60 - this.sleepFade)/30 : this.sleepFade/30; ctx.fillStyle = `rgba(0,0,0,${alpha})`; ctx.fillRect(0,0,canvas.width,canvas.height); }
 
-            // TOP UI HEADER
             if (['PLAYING', 'SUNRISE'].includes(this.state) || (this.state === 'TUTORIAL' && this.tutPhase > 4)) {
                 ctx.fillStyle = "#111"; ctx.fillRect(0, 0, canvas.width, 60); 
                 ctx.drawImage(sprMeat, 20, 15);
