@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Last Dojo - V1.0 (Mobile Ready)</title>
+    <title>Last Dojo - V1.0</title>
     <style>
         html, body { 
             margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; 
@@ -19,7 +19,7 @@
         canvas { 
             background-color: #3b4d3e; 
             width: 100vw; height: 100vh; 
-            object-fit: contain; /* MAGIC BULLET: Perfect aspect ratio scaling with black bars */
+            object-fit: contain; 
             cursor: crosshair; image-rendering: pixelated; display: block;
         }
         
@@ -43,6 +43,7 @@
             font-family: 'Courier New', Courier, monospace; font-size: clamp(16px, 3vw, 24px); font-weight: bold;
             color: #eee; cursor: pointer; margin: 8px; box-shadow: 0 4px 0 #8a1f1f;
             transition: all 0.1s; text-transform: uppercase; width: 80%; max-width: 350px;
+            box-sizing: border-box;
         }
         
         .arcade-btn:active { transform: translateY(4px); box-shadow: 0 0 0 #8a1f1f; }
@@ -55,12 +56,6 @@
             100% { transform: scale(1); box-shadow: 0 4px 0 #8a1f1f; }
         }
 
-        .controls { 
-            position: absolute; bottom: 10px; text-align: center; background: rgba(26,26,26,0.8); 
-            padding: 8px 20px; border-radius: 8px; border: 1px solid #333; font-size: 0.9em; z-index: 15; pointer-events: none;
-        }
-        kbd { background: #444; padding: 2px 6px; border-radius: 4px; color: #fff; box-shadow: 0 2px 0 #222; }
-
         #highScoreDisplay {
             color: #ffcc00; font-weight: bold; margin-top: -10px; margin-bottom: 20px; 
             letter-spacing: 2px; font-size: clamp(14px, 3vw, 20px); text-shadow: 2px 2px #000;
@@ -68,7 +63,7 @@
 
         /* Settings UI */
         .settings-container {
-            width: 90%; max-width: 480px; height: 50vh; overflow-y: auto; background: rgba(0,0,0,0.5); 
+            width: 90%; max-width: 500px; height: 50vh; overflow-y: auto; background: rgba(0,0,0,0.5); 
             border: 2px solid #555; padding: 15px; border-radius: 8px; margin-bottom: 10px;
         }
         .settings-container::-webkit-scrollbar { width: 8px; }
@@ -79,7 +74,12 @@
         .settings-row label { flex: 2; text-align: left; }
         .settings-row input[type=range] { flex: 2; margin: 0 10px; cursor: pointer; accent-color: #ffcc00;}
         .settings-row input[type=checkbox] { transform: scale(1.5); margin-right: 10px; cursor: pointer; accent-color: #d32f2f;}
-        .settings-row span { flex: 0.5; text-align: right; color: #ffcc00; font-weight: bold; }
+        
+        .num-input { 
+            flex: 0.8; width: 60px; background: #222; border: 1px solid #d32f2f; 
+            color: #ffcc00; font-family: monospace; font-size: 16px; padding: 4px; text-align: center;
+        }
+        .num-input:focus { outline: none; border-color: #ffcc00; }
         
         .bind-btn { background: #222; border: 1px solid #d32f2f; color: #ffcc00; padding: 4px 10px; font-family: inherit; font-size: clamp(12px, 2.5vw, 16px); cursor: pointer; width: 100px; text-align: center;}
         .bind-btn.waiting { background: #d32f2f; color: #fff; animation: pulseAnim 1s infinite; }
@@ -90,7 +90,6 @@
         }
         .touch-zone { pointer-events: auto; position: absolute; }
         
-        /* Virtual Joystick */
         #joystickBase {
             position: absolute; bottom: 40px; left: 40px; width: 120px; height: 120px;
             background: rgba(255, 255, 255, 0.1); border: 2px solid rgba(255, 255, 255, 0.3);
@@ -101,7 +100,6 @@
             border-radius: 50%; position: relative; pointer-events: none;
         }
 
-        /* Action Buttons */
         .touch-btn {
             background: rgba(211, 47, 47, 0.4); border: 2px solid rgba(211, 47, 47, 0.8);
             border-radius: 50%; color: #fff; font-weight: bold; font-family: monospace; font-size: 16px;
@@ -119,7 +117,7 @@
         /* Mobile Orientation Warning */
         #orientationWarning {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; color: #d32f2f;
-            display: flex; align-items: center; justify-content: center; flex-direction: column; z-index: 100;
+            display: flex; align-items: center; justify-content: center; flex-direction: column; z-index: 9999;
             text-align: center; font-family: monospace; font-weight: bold; font-size: 30px;
         }
         
@@ -136,8 +134,10 @@
     </div>
 
     <div id="gameContainer">
+        <!-- The Game Viewport -->
         <canvas id="gameCanvas" width="1024" height="576"></canvas>
 
+        <!-- Touch UI (Hidden on Desktop) -->
         <div id="touchUI" class="hidden">
             <div id="joystickBase"><div id="joystickStick"></div></div>
             <div id="btnPunch" class="touch-zone touch-btn">PUNCH</div>
@@ -147,12 +147,14 @@
             <div id="btnPause" class="touch-zone touch-btn" onclick="gameEngine.togglePause()">||</div>
         </div>
 
+        <!-- MAIN MENU -->
         <div id="mainMenu" class="menu-overlay">
             <h1 class="menu-title">LAST DOJO</h1>
             <p id="highScoreDisplay"></p>
             <div id="dynamicMenuButtons" style="display: flex; flex-direction: column; align-items: center; width: 100%;"></div>
         </div>
 
+        <!-- SETTINGS MENU -->
         <div id="settingsMenu" class="menu-overlay hidden">
             <h1 class="menu-title">SETTINGS</h1>
             <button class="arcade-btn" id="audioBtn" onclick="toggleAudio()">AUDIO: ON</button>
@@ -160,6 +162,7 @@
             <button class="arcade-btn" onclick="closeSettings()" style="margin-top: 20px;">BACK</button>
         </div>
 
+        <!-- CONTROLS MENU -->
         <div id="controlsMenu" class="menu-overlay hidden">
             <h1 class="menu-title" style="font-size: clamp(30px, 5vw, 40px); margin-bottom: 10px;">KEYBINDS</h1>
             <div class="settings-container">
@@ -176,36 +179,37 @@
             <button class="arcade-btn" onclick="closeControlsMenu()">DONE</button>
         </div>
 
+        <!-- ENDLESS SETTINGS MENU -->
         <div id="endlessSettingsMenu" class="menu-overlay hidden">
             <h1 class="menu-title" style="font-size: clamp(30px, 5vw, 40px); margin-bottom: 10px;">ENDLESS OPTIONS</h1>
             <div class="settings-container" style="color: #fff;">
                 <div class="settings-category">The World</div>
-                <div class="settings-row"><label>Blood Moon Freq.</label><input type="range" id="eo_bmFreq" min="1" max="14" step="1" oninput="updateEO('bmFreq')"><span id="val_bmFreq"></span></div>
-                <div class="settings-row"><label>Day/Night Length</label><input type="range" id="eo_phaseLen" min="0.2" max="3" step="0.1" oninput="updateEO('phaseLen')"><span id="val_phaseLen"></span></div>
-                <div class="settings-row"><label>Bandage Drop Rate</label><input type="range" id="eo_bandageDrop" min="0" max="1.0" step="0.05" oninput="updateEO('bandageDrop')"><span id="val_bandageDrop"></span></div>
-                <div class="settings-row"><label>Starting Crates</label><input type="range" id="eo_crates" min="0" max="10" step="1" oninput="updateEO('crates')"><span id="val_crates"></span></div>
-                <div class="settings-row"><label>Dojo Max HP</label><input type="range" id="eo_dojoHp" min="10" max="1000" step="10" oninput="updateEO('dojoHp')"><span id="val_dojoHp"></span></div>
+                <div class="settings-row"><label>Blood Moon Freq.</label><input type="range" id="eo_bmFreq" min="1" max="14" step="1" oninput="updateEO('bmFreq', this.value)"><input type="number" id="num_bmFreq" class="num-input" min="1" max="14" step="1" oninput="updateEO('bmFreq', this.value)"></div>
+                <div class="settings-row"><label>Day/Night Length</label><input type="range" id="eo_phaseLen" min="0.2" max="3" step="0.1" oninput="updateEO('phaseLen', this.value)"><input type="number" id="num_phaseLen" class="num-input" min="0.2" max="3" step="0.1" oninput="updateEO('phaseLen', this.value)"></div>
+                <div class="settings-row"><label>Bandage Drop %</label><input type="range" id="eo_bandageDrop" min="0" max="1.0" step="0.05" oninput="updateEO('bandageDrop', this.value)"><input type="number" id="num_bandageDrop" class="num-input" min="0" max="1.0" step="0.05" oninput="updateEO('bandageDrop', this.value)"></div>
+                <div class="settings-row"><label>Starting Crates</label><input type="range" id="eo_crates" min="0" max="10" step="1" oninput="updateEO('crates', this.value)"><input type="number" id="num_crates" class="num-input" min="0" max="10" step="1" oninput="updateEO('crates', this.value)"></div>
+                <div class="settings-row"><label>Dojo Max HP</label><input type="range" id="eo_dojoHp" min="10" max="1000" step="10" oninput="updateEO('dojoHp', this.value)"><input type="number" id="num_dojoHp" class="num-input" min="10" max="1000" step="10" oninput="updateEO('dojoHp', this.value)"></div>
                 
                 <div class="settings-category">The Player</div>
-                <div class="settings-row"><label>Player Speed</label><input type="range" id="eo_pSpeed" min="0.5" max="3" step="0.1" oninput="updateEO('pSpeed')"><span id="val_pSpeed"></span></div>
-                <div class="settings-row"><label>Lifesteal (Per Hit)</label><input type="range" id="eo_lifesteal" min="0" max="10" step="1" oninput="updateEO('lifesteal')"><span id="val_lifesteal"></span></div>
-                <div class="settings-row"><label>Knockback Power</label><input type="range" id="eo_knockback" min="0" max="5" step="0.1" oninput="updateEO('knockback')"><span id="val_knockback"></span></div>
-                <div class="settings-row"><label>Spin Cooldown</label><input type="range" id="eo_spinCd" min="0" max="3" step="0.1" oninput="updateEO('spinCd')"><span id="val_spinCd"></span></div>
-                <div class="settings-row"><label>Stamina Drain</label><input type="range" id="eo_stamDrain" min="0" max="3" step="0.1" oninput="updateEO('stamDrain')"><span id="val_stamDrain"></span></div>
+                <div class="settings-row"><label>Player Speed</label><input type="range" id="eo_pSpeed" min="0.5" max="3" step="0.1" oninput="updateEO('pSpeed', this.value)"><input type="number" id="num_pSpeed" class="num-input" min="0.5" max="3" step="0.1" oninput="updateEO('pSpeed', this.value)"></div>
+                <div class="settings-row"><label>Lifesteal / Hit</label><input type="range" id="eo_lifesteal" min="0" max="10" step="1" oninput="updateEO('lifesteal', this.value)"><input type="number" id="num_lifesteal" class="num-input" min="0" max="10" step="1" oninput="updateEO('lifesteal', this.value)"></div>
+                <div class="settings-row"><label>Knockback Power</label><input type="range" id="eo_knockback" min="0" max="5" step="0.1" oninput="updateEO('knockback', this.value)"><input type="number" id="num_knockback" class="num-input" min="0" max="5" step="0.1" oninput="updateEO('knockback', this.value)"></div>
+                <div class="settings-row"><label>Spin Cooldown</label><input type="range" id="eo_spinCd" min="0" max="3" step="0.1" oninput="updateEO('spinCd', this.value)"><input type="number" id="num_spinCd" class="num-input" min="0" max="3" step="0.1" oninput="updateEO('spinCd', this.value)"></div>
+                <div class="settings-row"><label>Stamina Drain</label><input type="range" id="eo_stamDrain" min="0" max="3" step="0.1" oninput="updateEO('stamDrain', this.value)"><input type="number" id="num_stamDrain" class="num-input" min="0" max="3" step="0.1" oninput="updateEO('stamDrain', this.value)"></div>
 
                 <div class="settings-category">The Horde</div>
-                <div class="settings-row"><label>Max Zombies Cap</label><input type="range" id="eo_maxZ" min="5" max="150" step="5" oninput="updateEO('maxZ')"><span id="val_maxZ"></span></div>
-                <div class="settings-row"><label>Spawn Rate</label><input type="range" id="eo_spawnRate" min="0.1" max="5" step="0.1" oninput="updateEO('spawnRate')"><span id="val_spawnRate"></span></div>
-                <div class="settings-row"><label>Zombie Health</label><input type="range" id="eo_zHealth" min="0.1" max="5" step="0.1" oninput="updateEO('zHealth')"><span id="val_zHealth"></span></div>
-                <div class="settings-row"><label>Zombie Damage</label><input type="range" id="eo_zDamage" min="0.1" max="5" step="0.1" oninput="updateEO('zDamage')"><span id="val_zDamage"></span></div>
-                <div class="settings-row"><label>Zombie Speed</label><input type="range" id="eo_zSpeed" min="0.5" max="3" step="0.1" oninput="updateEO('zSpeed')"><span id="val_zSpeed"></span></div>
+                <div class="settings-row"><label>Max Zombies Cap</label><input type="range" id="eo_maxZ" min="5" max="150" step="5" oninput="updateEO('maxZ', this.value)"><input type="number" id="num_maxZ" class="num-input" min="5" max="150" step="5" oninput="updateEO('maxZ', this.value)"></div>
+                <div class="settings-row"><label>Spawn Rate</label><input type="range" id="eo_spawnRate" min="0.1" max="5" step="0.1" oninput="updateEO('spawnRate', this.value)"><input type="number" id="num_spawnRate" class="num-input" min="0.1" max="5" step="0.1" oninput="updateEO('spawnRate', this.value)"></div>
+                <div class="settings-row"><label>Zombie Health</label><input type="range" id="eo_zHealth" min="0.1" max="5" step="0.1" oninput="updateEO('zHealth', this.value)"><input type="number" id="num_zHealth" class="num-input" min="0.1" max="5" step="0.1" oninput="updateEO('zHealth', this.value)"></div>
+                <div class="settings-row"><label>Zombie Damage</label><input type="range" id="eo_zDamage" min="0.1" max="5" step="0.1" oninput="updateEO('zDamage', this.value)"><input type="number" id="num_zDamage" class="num-input" min="0.1" max="5" step="0.1" oninput="updateEO('zDamage', this.value)"></div>
+                <div class="settings-row"><label>Zombie Speed</label><input type="range" id="eo_zSpeed" min="0.5" max="3" step="0.1" oninput="updateEO('zSpeed', this.value)"><input type="number" id="num_zSpeed" class="num-input" min="0.5" max="3" step="0.1" oninput="updateEO('zSpeed', this.value)"></div>
                 
                 <div class="settings-category">The Warlord</div>
-                <div class="settings-row"><label>Boss Spawn Freq.</label><input type="range" id="eo_bossFreq" min="1" max="50" step="1" oninput="updateEO('bossFreq')"><span id="val_bossFreq"></span></div>
-                <div class="settings-row"><label>Boss Max Cap</label><input type="range" id="eo_bossCap" min="1" max="10" step="1" oninput="updateEO('bossCap')"><span id="val_bossCap"></span></div>
-                <div class="settings-row"><label>Boss Health</label><input type="range" id="eo_bHealth" min="0.1" max="10" step="0.5" oninput="updateEO('bHealth')"><span id="val_bHealth"></span></div>
-                <div class="settings-row"><label>Boss Speed</label><input type="range" id="eo_bSpeed" min="0.1" max="3" step="0.1" oninput="updateEO('bSpeed')"><span id="val_bSpeed"></span></div>
-                <div class="settings-row"><label>Boss Scale (Size)</label><input type="range" id="eo_bossSize" min="0.5" max="3" step="0.1" oninput="updateEO('bossSize')"><span id="val_bossSize"></span></div>
+                <div class="settings-row"><label>Boss Spawn Freq.</label><input type="range" id="eo_bossFreq" min="1" max="50" step="1" oninput="updateEO('bossFreq', this.value)"><input type="number" id="num_bossFreq" class="num-input" min="1" max="50" step="1" oninput="updateEO('bossFreq', this.value)"></div>
+                <div class="settings-row"><label>Boss Max Cap</label><input type="range" id="eo_bossCap" min="1" max="10" step="1" oninput="updateEO('bossCap', this.value)"><input type="number" id="num_bossCap" class="num-input" min="1" max="10" step="1" oninput="updateEO('bossCap', this.value)"></div>
+                <div class="settings-row"><label>Boss Health</label><input type="range" id="eo_bHealth" min="0.1" max="10" step="0.5" oninput="updateEO('bHealth', this.value)"><input type="number" id="num_bHealth" class="num-input" min="0.1" max="10" step="0.5" oninput="updateEO('bHealth', this.value)"></div>
+                <div class="settings-row"><label>Boss Speed</label><input type="range" id="eo_bSpeed" min="0.1" max="3" step="0.1" oninput="updateEO('bSpeed', this.value)"><input type="number" id="num_bSpeed" class="num-input" min="0.1" max="3" step="0.1" oninput="updateEO('bSpeed', this.value)"></div>
+                <div class="settings-row"><label>Boss Scale (Size)</label><input type="range" id="eo_bossSize" min="0.5" max="3" step="0.1" oninput="updateEO('bossSize', this.value)"><input type="number" id="num_bossSize" class="num-input" min="0.5" max="3" step="0.1" oninput="updateEO('bossSize', this.value)"></div>
 
                 <div class="settings-category">Mutators</div>
                 <div class="settings-row" style="justify-content: flex-start;"><input type="checkbox" id="eo_infStamReg"><label>Infinite Stamina (Normal Nights)</label></div>
@@ -221,27 +225,25 @@
 
         <div id="pauseMenu" class="menu-overlay hidden">
             <h1 class="menu-title">PAUSED</h1>
-            <button class="arcade-btn" onclick="gameEngine.togglePause()">RESUME</button>
+            <button class="arcade-btn" onclick="gameEngine.togglePause()">RESUME (P)</button>
             <button class="arcade-btn" onclick="openSettings()">SETTINGS</button>
-            <button class="arcade-btn" onclick="quitToMenu()">MAIN MENU</button>
+            <button class="arcade-btn" onclick="quitToMenu()">MAIN MENU (Q)</button>
         </div>
 
         <div id="gameOverMenu" class="menu-overlay hidden">
             <h1 class="menu-title" id="goTitle">YOU DIED</h1>
             <p id="goDesc" style="font-size: 24px; margin-bottom: 30px;">Survived to Day X</p>
-            <button class="arcade-btn" onclick="restartGame()">RESTART</button>
-            <button class="arcade-btn" onclick="quitToMenu()">MAIN MENU</button>
+            <button class="arcade-btn" onclick="restartGame()">RESTART (SPACE)</button>
+            <button class="arcade-btn" onclick="quitToMenu()">MAIN MENU (Q)</button>
         </div>
 
         <div id="victoryMenu" class="menu-overlay hidden">
             <h1 class="menu-title">VICTORY</h1>
             <p style="font-size: 24px; margin-bottom: 10px; text-align:center; padding: 0 20px;">The Dojo stands. The Warlord's vessel is shattered.</p>
             <p style="font-size: 24px; color: #d32f2f; margin-bottom: 30px; font-weight: bold; text-align:center;">ENDLESS MODE UNLOCKED</p>
-            <button class="arcade-btn" onclick="restartGame()">CONTINUE</button>
-            <button class="arcade-btn" onclick="quitToMenu()">MAIN MENU</button>
+            <button class="arcade-btn" onclick="restartGame()">CONTINUE (SPACE)</button>
+            <button class="arcade-btn" onclick="quitToMenu()">MAIN MENU (Q)</button>
         </div>
-        
-        <div class="controls" id="footerControls"></div>
     </div>
 
 <script>
@@ -275,15 +277,9 @@
     }
     
     function updateControlsUI() {
-        let footer = document.getElementById('footerControls');
         if (isTouchDevice) {
-            footer.classList.add('hidden'); // Hide footer text on mobile
-            document.getElementById('controlsBtn').classList.add('hidden'); // Hide keybind menu on mobile
+            document.getElementById('controlsBtn').classList.add('hidden');
         } else {
-            footer.innerHTML = `
-                <p>Move: <kbd>${getDisplayKey(userKeys.up)}</kbd><kbd>${getDisplayKey(userKeys.left)}</kbd><kbd>${getDisplayKey(userKeys.down)}</kbd><kbd>${getDisplayKey(userKeys.right)}</kbd> | Sleep: <kbd>${getDisplayKey(userKeys.sleep)}</kbd> | Pause: <kbd>${getDisplayKey(userKeys.pause)}</kbd> or <kbd>ESC</kbd></p>
-                <p>Punch: <kbd>Left Click</kbd> or <kbd>${getDisplayKey(userKeys.punch)}</kbd> | Spin: <kbd>Right Click</kbd> or <kbd>${getDisplayKey(userKeys.spin)}</kbd> | Eat: <kbd>${getDisplayKey(userKeys.eat)}</kbd></p>`;
-            
             ['up','left','down','right','punch','spin','sleep','eat','pause'].forEach(act => {
                 let btn = document.getElementById('bind_' + act);
                 if(btn) { btn.innerText = getDisplayKey(userKeys[act]); btn.classList.remove('waiting'); }
@@ -330,21 +326,25 @@
             let el = document.getElementById('eo_' + k);
             if (el) {
                 if (el.type === 'checkbox') el.checked = endlessConfig[k];
-                else { el.value = endlessConfig[k]; updateEO(k); }
+                else { 
+                    el.value = endlessConfig[k]; 
+                    updateEO(k, endlessConfig[k]); 
+                }
             }
         }
     }
     
-    function updateEO(key) {
-        let el = document.getElementById('eo_' + key);
-        if (!el) return;
-        let val = el.value;
-        let ext = ['maxZ', 'bossFreq', 'bossCap', 'bmFreq', 'dojoHp', 'crates', 'lifesteal'].includes(key) ? '' : 'x';
-        if (key === 'bandageDrop') ext = '%'; 
-        let displayVal = key === 'bandageDrop' ? Math.round(val * 100) : val;
+    function updateEO(key, value) {
+        let rangeEl = document.getElementById('eo_' + key);
+        let numEl = document.getElementById('num_' + key);
+        if (!rangeEl || !numEl) return;
         
-        let span = document.getElementById('val_' + key);
-        if(span) span.innerText = displayVal + ext;
+        if (value !== undefined) {
+            rangeEl.value = value;
+            numEl.value = value;
+        } else {
+            numEl.value = rangeEl.value;
+        }
     }
 
     function openEndlessSettings() {
@@ -356,7 +356,7 @@
             let el = document.getElementById('eo_' + k);
             if (el) {
                 if (el.type === 'checkbox') endlessConfig[k] = el.checked;
-                else endlessConfig[k] = parseFloat(el.value);
+                else endlessConfig[k] = parseFloat(document.getElementById('num_' + k).value);
             }
         }
         localStorage.setItem('lastDojoEndlessConfig', JSON.stringify(endlessConfig));
@@ -383,9 +383,9 @@
         const surBtn = document.createElement('button'); surBtn.className = 'arcade-btn'; surBtn.onclick = () => startGame('SURVIVAL'); surBtn.innerText = 'SURVIVAL';
         const epiBtn = document.createElement('button'); epiBtn.className = 'arcade-btn'; epiBtn.onclick = startEpilogueMenu; epiBtn.innerText = 'EPILOGUE';
 
-        const endWrap = document.createElement('div'); endWrap.style.display = 'flex'; endWrap.style.margin = '10px'; endWrap.style.width = '80%'; endWrap.style.maxWidth = '390px';
+        const endWrap = document.createElement('div'); endWrap.style.display = 'flex'; endWrap.style.margin = '8px'; endWrap.style.width = '80%'; endWrap.style.maxWidth = '350px'; endWrap.style.justifyContent = 'center';
         const endBtn = document.createElement('button'); endBtn.className = 'arcade-btn'; endBtn.onclick = () => startGame('ENDLESS'); endBtn.innerText = 'ENDLESS MODE'; endBtn.style.margin = '0'; endBtn.style.flex = '1';
-        const gearBtn = document.createElement('button'); gearBtn.className = 'arcade-btn'; gearBtn.onclick = openEndlessSettings; gearBtn.innerText = '⚙'; gearBtn.style.margin = '0 0 0 10px'; gearBtn.style.width = '60px'; gearBtn.style.padding = '12px 0';
+        const gearBtn = document.createElement('button'); gearBtn.className = 'arcade-btn'; gearBtn.onclick = openEndlessSettings; gearBtn.innerText = '⚙'; gearBtn.style.margin = '0 0 0 8px'; gearBtn.style.width = '60px'; gearBtn.style.padding = '0';
         endWrap.appendChild(endBtn); endWrap.appendChild(gearBtn);
 
         container.appendChild(document.createElement('button')).className='hidden'; 
@@ -606,7 +606,6 @@
         }
 
         bindInput() {
-            // TOUCH VIRTUAL CONTROLS
             if (isTouchDevice) {
                 let joyBase = document.getElementById('joystickBase');
                 let joyStick = document.getElementById('joystickStick');
@@ -658,7 +657,6 @@
                 bindTouchBtn('btnEat', 'eat'); bindTouchBtn('btnSleep', 'sleep');
             }
 
-            // MOUSE & KEYBOARD
             document.addEventListener('mousedown', (e) => {
                 if (e.target !== canvas && ['PLAYING', 'TUTORIAL', 'SUNRISE'].includes(this.state)) {
                     for (let k in this.keys) this.keys[k] = false; this.mouse.left = false; this.mouse.right = false;
@@ -766,7 +764,7 @@
 
             if (actualType === 'warlord' && x === null) {
                 spawnX = canvas.width - 150;
-                spawnY = Math.max(80, Math.min(canvas.height - 120, this.player.y - 40));
+                spawnY = Math.max(100, Math.min(canvas.height - 120, this.player.y - 40));
                 this.addDecal(spawnX + size/2, spawnY + size, '#111', 2.0); 
             }
 
@@ -838,7 +836,7 @@
                 if (this.rectIntersect(hitbox.x, hitbox.y, hitbox.w, hitbox.h, z.x, z.y, z.w, z.h)) {
                     z.hp -= damage; z.hitTimer = 10; sfx.sfxHit();
                     
-                    if (this.gameMode === 'ENDLESS' && endlessConfig.lifesteal > 0) {
+                    if (this.gameMode === 'ENDLESS' && endlessConfig.lifesteal > 0 && z.hp > 0) {
                         this.player.hp = Math.min(this.player.maxHp, this.player.hp + endlessConfig.lifesteal);
                     }
 
@@ -1183,7 +1181,10 @@
             if (this.keys.right && !this.keys.left) { this.player.x += pSpeed; this.player.facingRight = true; }
             if (this.keys.up && !this.keys.down) this.player.y -= pSpeed;
             if (this.keys.down && !this.keys.up) this.player.y += pSpeed;
-            this.player.x = Math.max(0, Math.min(canvas.width - this.player.size, this.player.x)); this.player.y = Math.max(80, Math.min(canvas.height - this.player.size, this.player.y)); 
+            
+            // Limit Player Y to 110 to avoid clipping behind top UI header
+            this.player.x = Math.max(0, Math.min(canvas.width - this.player.size, this.player.x)); 
+            this.player.y = Math.max(110, Math.min(canvas.height - this.player.size, this.player.y)); 
 
             let regenRate = 0.1 + (this.player.condition / 100) * 1.5; 
             if (!this.player.isAttacking && this.player.stamina < this.player.maxStamina && !this.isSiege && !this.hasInfiniteStamina()) this.player.stamina += regenRate;
@@ -1277,7 +1278,7 @@
                     if (z.type === 'warlord' && this.state === 'SUNRISE') {
                         return; 
                     } else {
-                        z.hp -= (z.type === 'warlord' ? 0 : 3); 
+                        z.hp -= (z.type === 'warlord' ? 150 : 3); 
                         if (Math.random() < 0.2) this.spawnParticles(z.x+20, z.y+20, '#ff9900', 1); 
                     }
                     
