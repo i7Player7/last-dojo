@@ -134,8 +134,10 @@
     </div>
 
     <div id="gameContainer">
+        <!-- The Game Viewport -->
         <canvas id="gameCanvas" width="1024" height="576"></canvas>
 
+        <!-- Touch UI (Hidden on Desktop) -->
         <div id="touchUI" class="hidden">
             <div id="joystickBase"><div id="joystickStick"></div></div>
             <div id="btnPunch" class="touch-zone touch-btn">PUNCH</div>
@@ -145,12 +147,14 @@
             <div id="btnPause" class="touch-zone touch-btn" onclick="gameEngine.togglePause()">||</div>
         </div>
 
+        <!-- MAIN MENU -->
         <div id="mainMenu" class="menu-overlay">
             <h1 class="menu-title">LAST DOJO</h1>
             <p id="highScoreDisplay"></p>
             <div id="dynamicMenuButtons" style="display: flex; flex-direction: column; align-items: center; width: 100%;"></div>
         </div>
 
+        <!-- SETTINGS MENU -->
         <div id="settingsMenu" class="menu-overlay hidden">
             <h1 class="menu-title">SETTINGS</h1>
             <button class="arcade-btn" id="audioBtn" onclick="toggleAudio()">AUDIO: ON</button>
@@ -158,6 +162,7 @@
             <button class="arcade-btn" onclick="closeSettings()" style="margin-top: 20px;">BACK</button>
         </div>
 
+        <!-- CONTROLS MENU -->
         <div id="controlsMenu" class="menu-overlay hidden">
             <h1 class="menu-title" style="font-size: clamp(30px, 5vw, 40px); margin-bottom: 10px;">KEYBINDS</h1>
             <div class="settings-container">
@@ -174,6 +179,7 @@
             <button class="arcade-btn" onclick="closeControlsMenu()">DONE</button>
         </div>
 
+        <!-- ENDLESS SETTINGS MENU -->
         <div id="endlessSettingsMenu" class="menu-overlay hidden">
             <h1 class="menu-title" style="font-size: clamp(30px, 5vw, 40px); margin-bottom: 10px;">ENDLESS OPTIONS</h1>
             <div class="settings-container" style="color: #fff;">
@@ -238,8 +244,6 @@
             <button class="arcade-btn" onclick="restartGame()">CONTINUE (SPACE)</button>
             <button class="arcade-btn" onclick="quitToMenu()">MAIN MENU (Q)</button>
         </div>
-        
-        <div class="controls" id="footerControls" style="bottom: 10px; pointer-events: none; z-index: 15; position: absolute;"></div>
     </div>
 
 <script>
@@ -273,15 +277,9 @@
     }
     
     function updateControlsUI() {
-        let footer = document.getElementById('footerControls');
         if (isTouchDevice) {
-            footer.classList.add('hidden'); 
             document.getElementById('controlsBtn').classList.add('hidden'); 
         } else {
-            footer.innerHTML = `
-                <p>Move: <kbd>${getDisplayKey(userKeys.up)}</kbd><kbd>${getDisplayKey(userKeys.left)}</kbd><kbd>${getDisplayKey(userKeys.down)}</kbd><kbd>${getDisplayKey(userKeys.right)}</kbd> | Sleep: <kbd>${getDisplayKey(userKeys.sleep)}</kbd> | Pause: <kbd>${getDisplayKey(userKeys.pause)}</kbd> or <kbd>ESC</kbd></p>
-                <p>Punch: <kbd>Left Click</kbd> or <kbd>${getDisplayKey(userKeys.punch)}</kbd> | Spin: <kbd>Right Click</kbd> or <kbd>${getDisplayKey(userKeys.spin)}</kbd> | Eat: <kbd>${getDisplayKey(userKeys.eat)}</kbd></p>`;
-            
             ['up','left','down','right','punch','spin','sleep','eat','pause'].forEach(act => {
                 let btn = document.getElementById('bind_' + act);
                 if(btn) { btn.innerText = getDisplayKey(userKeys[act]); btn.classList.remove('waiting'); }
@@ -997,7 +995,7 @@
                 case 5: this.tutText = "You are the last Master. You alone keep the Dojo standing."; if (this.tutTimer <= 0) { this.tutPhase = 6; this.tutTimer = 180; } break;
                 case 6: this.tutText = "The dead burn in the sunlight. But the nights are long."; if (this.tutTimer <= 0) { this.tutPhase = 7; this.tutTimer = 30; } break;
                 case 7: this.tutText = isTouchDevice ? "Use the Virtual Joystick to move." : `Use ${kU}, ${kL}, ${kD}, ${kR} to move.`; if (this.tutTimer <= 0 && this.player.isMoving) { this.tutPhase = 8; this.tutTimer = 30; sfx.sfxLore(); } break;
-                case 8: this.tutText = isTouchDevice ? "Training increases Max Stamina. (Tap PUNCH)" : `Training increases Max Stamina. Level it up. (${kP} to Punch)`; break;
+                case 8: this.tutText = isTouchDevice ? "Punch the training dummy to increase Max Stamina! (Tap PUNCH)" : `Punch the training dummy to increase Max Stamina! (${kP} to Punch)`; break;
                 case 9: this.tutText = isTouchDevice ? "When surrounded, the Hurricane creates space. (Tap SPIN)" : `When surrounded, the Hurricane creates space. (${kS} to Spin)`; break;
                 case 10: this.tutText = "Attacks drain Stamina (Blue). Without it, you are defenseless. Exhaust it."; if (this.player.stamina <= 30) { this.tutPhase = 11; this.tutTimer = 120; sfx.sfxLore(); this.player.condition = 10; } break;
                 case 11: this.tutText = "Notice how slow Stamina recovers? It depends on your Condition (Yellow)."; if (this.tutTimer <= 0) { if (this.boxes.length === 0) this.spawnBox(); this.tutPhase = 12; this.tutTimer = 60; sfx.sfxLore(); } break;
@@ -1066,7 +1064,7 @@
                 }
             });
             this.damagePools = this.damagePools.filter(dp => dp.life > 0);
-            if (this.player.hp < oldHp) this.damageFlash = 20;
+            if (this.player.hp < oldHp) this.damageFlash = 30;
 
             if (this.isSiege && ['PLAYING', 'SUNRISE', 'TUTORIAL'].includes(this.state)) {
                 this.player.stamina = this.player.maxStamina; this.player.condition = this.player.maxCondition;
@@ -1109,7 +1107,6 @@
                     if (this.isDay) {
                         this.dayCount++; this.isSiege = false; this.announceText = "DAY " + this.dayCount;
                         
-                        // LAVA MUTATOR FIX
                         if (this.gameMode === 'ENDLESS' && endlessConfig.lavaMode) {
                             this.damagePools.push({ x: Math.random()*canvas.width, y: Math.random()*canvas.height, life: 999999 });
                             let lavaCount = this.damagePools.filter(dp => dp.life > 100000).length;
@@ -1216,7 +1213,9 @@
             if (this.keys.right && !this.keys.left) { this.player.x += pSpeed; this.player.facingRight = true; }
             if (this.keys.up && !this.keys.down) this.player.y -= pSpeed;
             if (this.keys.down && !this.keys.up) this.player.y += pSpeed;
-            this.player.x = Math.max(0, Math.min(canvas.width - this.player.size, this.player.x)); this.player.y = Math.max(80, Math.min(canvas.height - this.player.size, this.player.y)); 
+            
+            this.player.x = Math.max(0, Math.min(canvas.width - this.player.size, this.player.x)); 
+            this.player.y = Math.max(110, Math.min(canvas.height - this.player.size, this.player.y)); 
 
             let regenRate = 0.1 + (this.player.condition / 100) * 1.5; 
             if (!this.player.isAttacking && this.player.stamina < this.player.maxStamina && !this.isSiege && !this.hasInfiniteStamina()) this.player.stamina += regenRate;
@@ -1401,7 +1400,7 @@
                 }
             });
 
-            if (this.player.hp < oldHp) this.damageFlash = 20;
+            if (this.player.hp < oldHp) this.damageFlash = 30;
 
             this.corpses.forEach(c => { c.x += c.vx; c.y += c.vy; c.vy += 0.5; c.rot += c.spin; if (c.y > canvas.height - 40) { c.y = canvas.height - 40; c.vy *= -0.4; c.vx *= 0.5; c.spin *= 0.5; } c.life--; });
             if (this.shake > 0) this.shake *= 0.9; if (this.shake < 0.5) this.shake = 0;
@@ -1551,9 +1550,12 @@
             ctx.restore(); 
             this.drawLighting();
 
-            // DAMAGE FLASH EFFECT
+            // CINEMATIC DAMAGE VIGNETTE
             if (this.damageFlash > 0) {
-                ctx.fillStyle = `rgba(255, 0, 0, ${this.damageFlash / 40})`; 
+                let flashGrad = ctx.createRadialGradient(canvas.width/2, canvas.height/2, canvas.height/3, canvas.width/2, canvas.height/2, canvas.width/1.2);
+                flashGrad.addColorStop(0, 'rgba(255, 0, 0, 0)');
+                flashGrad.addColorStop(1, `rgba(255, 0, 0, ${this.damageFlash / 30})`);
+                ctx.fillStyle = flashGrad; 
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
             }
 
@@ -1587,7 +1589,6 @@
                 ctx.font = "bold 60px Courier"; ctx.textAlign = "center"; 
                 ctx.fillText(this.announceText, canvas.width/2, canvas.height/4); 
                 
-                // SUBTITLE LORE
                 if (this.subAnnounceText) {
                     ctx.fillStyle = `rgba(211, 47, 47, ${alpha})`; 
                     ctx.font = "bold 24px Courier"; 
@@ -1596,7 +1597,6 @@
             }
             if (this.sleepFade > 0) { let alpha = this.sleepFade > 30 ? (60 - this.sleepFade)/30 : this.sleepFade/30; ctx.fillStyle = `rgba(0,0,0,${alpha})`; ctx.fillRect(0,0,canvas.width,canvas.height); }
 
-            // TOP UI HEADER
             if (['PLAYING', 'SUNRISE'].includes(this.state) || (this.state === 'TUTORIAL' && this.tutPhase > 4)) {
                 ctx.fillStyle = "#111"; ctx.fillRect(0, 0, canvas.width, 60); 
                 ctx.drawImage(sprMeat, 20, 15);
