@@ -2,44 +2,47 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Last Dojo</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Last Dojo - V1.0 (Mobile Ready)</title>
     <style>
         html, body { 
             margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; 
             background-color: #0a0a0a; color: #eee; font-family: 'Courier New', Courier, monospace; 
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            user-select: none; -webkit-user-select: none;
+            user-select: none; -webkit-user-select: none; touch-action: none;
         }
         
         #gameContainer {
-            position: relative; box-shadow: 0 0 50px rgba(0,0,0,1); border-radius: 8px;
+            position: relative; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center;
         }
 
         canvas { 
-            background-color: #3b4d3e; border: 4px solid #555; border-radius: 8px; 
+            background-color: #3b4d3e; 
+            width: 100vw; height: 100vh; 
+            object-fit: contain; /* MAGIC BULLET: Perfect aspect ratio scaling with black bars */
             cursor: crosshair; image-rendering: pixelated; display: block;
         }
         
         .menu-overlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background: radial-gradient(circle at 50% 30%, #3a0000 0%, #0a0a0a 70%);
-            border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center;
-            z-index: 10;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 20;
         }
         
         .hidden { display: none !important; }
         
         .menu-title { 
-            font-size: 80px; color: #d32f2f; 
+            font-size: clamp(40px, 8vw, 80px); color: #d32f2f; 
             text-shadow: 4px 4px #000, 0 0 30px #d32f2f; 
-            margin: 0 0 40px 0; letter-spacing: 10px; font-weight: 900; text-align: center;
+            margin: 0 0 20px 0; letter-spacing: 5px; font-weight: 900; text-align: center;
         }
         
         .arcade-btn {
-            background: #111; border: 2px solid #d32f2f; padding: 12px 30px;
-            font-family: 'Courier New', Courier, monospace; font-size: 24px; font-weight: bold;
-            color: #eee; cursor: pointer; margin: 10px; box-shadow: 0 4px 0 #8a1f1f;
-            transition: all 0.1s; text-transform: uppercase; width: 350px;
+            background: #111; border: 2px solid #d32f2f; padding: 12px 20px;
+            font-family: 'Courier New', Courier, monospace; font-size: clamp(16px, 3vw, 24px); font-weight: bold;
+            color: #eee; cursor: pointer; margin: 8px; box-shadow: 0 4px 0 #8a1f1f;
+            transition: all 0.1s; text-transform: uppercase; width: 80%; max-width: 350px;
         }
         
         .arcade-btn:active { transform: translateY(4px); box-shadow: 0 0 0 #8a1f1f; }
@@ -53,55 +56,112 @@
         }
 
         .controls { 
-            margin-top: 15px; text-align: center; background: #1a1a1a; padding: 8px 20px; 
-            border-radius: 8px; border: 1px solid #333; font-size: 0.9em;
+            position: absolute; bottom: 10px; text-align: center; background: rgba(26,26,26,0.8); 
+            padding: 8px 20px; border-radius: 8px; border: 1px solid #333; font-size: 0.9em; z-index: 15; pointer-events: none;
         }
         kbd { background: #444; padding: 2px 6px; border-radius: 4px; color: #fff; box-shadow: 0 2px 0 #222; }
 
         #highScoreDisplay {
-            color: #ffcc00; font-weight: bold; margin-top: -20px; margin-bottom: 30px; 
-            letter-spacing: 2px; font-size: 20px; text-shadow: 2px 2px #000;
+            color: #ffcc00; font-weight: bold; margin-top: -10px; margin-bottom: 20px; 
+            letter-spacing: 2px; font-size: clamp(14px, 3vw, 20px); text-shadow: 2px 2px #000;
         }
 
+        /* Settings UI */
         .settings-container {
-            width: 480px; height: 350px; overflow-y: auto; background: rgba(0,0,0,0.5); 
-            border: 2px solid #555; padding: 15px; border-radius: 8px; margin-bottom: 20px;
+            width: 90%; max-width: 480px; height: 50vh; overflow-y: auto; background: rgba(0,0,0,0.5); 
+            border: 2px solid #555; padding: 15px; border-radius: 8px; margin-bottom: 10px;
         }
         .settings-container::-webkit-scrollbar { width: 8px; }
         .settings-container::-webkit-scrollbar-thumb { background: #d32f2f; border-radius: 4px; }
         
         .settings-category { color: #d32f2f; font-weight: bold; font-size: 20px; margin: 15px 0 10px 0; border-bottom: 1px solid #d32f2f; padding-bottom: 5px; text-align: left;}
-        
-        .settings-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-size: 16px;}
+        .settings-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-size: clamp(12px, 2.5vw, 16px);}
         .settings-row label { flex: 2; text-align: left; }
-        .settings-row input[type=range] { flex: 2; margin: 0 15px; cursor: pointer; accent-color: #ffcc00;}
+        .settings-row input[type=range] { flex: 2; margin: 0 10px; cursor: pointer; accent-color: #ffcc00;}
         .settings-row input[type=checkbox] { transform: scale(1.5); margin-right: 10px; cursor: pointer; accent-color: #d32f2f;}
         .settings-row span { flex: 0.5; text-align: right; color: #ffcc00; font-weight: bold; }
         
-        .bind-btn { background: #222; border: 1px solid #d32f2f; color: #ffcc00; padding: 4px 10px; font-family: inherit; font-size: 16px; cursor: pointer; width: 120px; text-align: center;}
+        .bind-btn { background: #222; border: 1px solid #d32f2f; color: #ffcc00; padding: 4px 10px; font-family: inherit; font-size: clamp(12px, 2.5vw, 16px); cursor: pointer; width: 100px; text-align: center;}
         .bind-btn.waiting { background: #d32f2f; color: #fff; animation: pulseAnim 1s infinite; }
+
+        /* Mobile Touch Controls UI */
+        #touchUI {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 15;
+        }
+        .touch-zone { pointer-events: auto; position: absolute; }
+        
+        /* Virtual Joystick */
+        #joystickBase {
+            position: absolute; bottom: 40px; left: 40px; width: 120px; height: 120px;
+            background: rgba(255, 255, 255, 0.1); border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%; pointer-events: auto; display: flex; align-items: center; justify-content: center;
+        }
+        #joystickStick {
+            width: 50px; height: 50px; background: rgba(255, 204, 0, 0.6);
+            border-radius: 50%; position: relative; pointer-events: none;
+        }
+
+        /* Action Buttons */
+        .touch-btn {
+            background: rgba(211, 47, 47, 0.4); border: 2px solid rgba(211, 47, 47, 0.8);
+            border-radius: 50%; color: #fff; font-weight: bold; font-family: monospace; font-size: 16px;
+            display: flex; align-items: center; justify-content: center;
+            pointer-events: auto; text-shadow: 1px 1px 2px #000;
+        }
+        .touch-btn:active { background: rgba(211, 47, 47, 0.8); transform: scale(0.9); }
+        
+        #btnPunch { width: 90px; height: 90px; bottom: 40px; right: 40px; font-size: 20px;}
+        #btnSpin { width: 70px; height: 70px; bottom: 120px; right: 120px; }
+        #btnEat { width: 60px; height: 60px; top: 20px; right: 20px; background: rgba(255, 204, 0, 0.4); border-color: rgba(255, 204, 0, 0.8);}
+        #btnSleep { width: 60px; height: 60px; top: 20px; right: 90px; background: rgba(68, 170, 68, 0.4); border-color: rgba(68, 170, 68, 0.8);}
+        #btnPause { width: 40px; height: 40px; top: 20px; left: 20px; background: rgba(255, 255, 255, 0.2); border-color: rgba(255, 255, 255, 0.5); border-radius: 8px;}
+
+        /* Mobile Orientation Warning */
+        #orientationWarning {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; color: #d32f2f;
+            display: flex; align-items: center; justify-content: center; flex-direction: column; z-index: 100;
+            text-align: center; font-family: monospace; font-weight: bold; font-size: 30px;
+        }
+        
+        @media (orientation: landscape) {
+            #orientationWarning { display: none !important; }
+        }
     </style>
 </head>
 <body>
 
+    <div id="orientationWarning" class="hidden">
+        <h1>PLEASE ROTATE<br>YOUR DEVICE</h1>
+        <p style="color: #fff; font-size: 16px;">Last Dojo requires Landscape Mode.</p>
+    </div>
+
     <div id="gameContainer">
         <canvas id="gameCanvas" width="1024" height="576"></canvas>
+
+        <div id="touchUI" class="hidden">
+            <div id="joystickBase"><div id="joystickStick"></div></div>
+            <div id="btnPunch" class="touch-zone touch-btn">PUNCH</div>
+            <div id="btnSpin" class="touch-zone touch-btn">SPIN</div>
+            <div id="btnEat" class="touch-zone touch-btn">EAT</div>
+            <div id="btnSleep" class="touch-zone touch-btn">REST</div>
+            <div id="btnPause" class="touch-zone touch-btn" onclick="gameEngine.togglePause()">||</div>
+        </div>
 
         <div id="mainMenu" class="menu-overlay">
             <h1 class="menu-title">LAST DOJO</h1>
             <p id="highScoreDisplay"></p>
-            <div id="dynamicMenuButtons" style="display: flex; flex-direction: column; align-items: center;"></div>
+            <div id="dynamicMenuButtons" style="display: flex; flex-direction: column; align-items: center; width: 100%;"></div>
         </div>
 
         <div id="settingsMenu" class="menu-overlay hidden">
-            <h1 class="menu-title" style="font-size: 50px;">SETTINGS</h1>
+            <h1 class="menu-title">SETTINGS</h1>
             <button class="arcade-btn" id="audioBtn" onclick="toggleAudio()">AUDIO: ON</button>
-            <button class="arcade-btn" onclick="openControlsMenu()">EDIT CONTROLS</button>
-            <button class="arcade-btn" onclick="closeSettings()" style="margin-top: 40px;">BACK</button>
+            <button class="arcade-btn" id="controlsBtn" onclick="openControlsMenu()">EDIT CONTROLS</button>
+            <button class="arcade-btn" onclick="closeSettings()" style="margin-top: 20px;">BACK</button>
         </div>
 
         <div id="controlsMenu" class="menu-overlay hidden">
-            <h1 class="menu-title" style="font-size: 40px; margin-bottom: 20px;">CONTROLS</h1>
+            <h1 class="menu-title" style="font-size: clamp(30px, 5vw, 40px); margin-bottom: 10px;">KEYBINDS</h1>
             <div class="settings-container">
                 <div class="settings-row"><label>Move Up</label><button class="bind-btn" id="bind_up" onclick="startBind('up')"></button></div>
                 <div class="settings-row"><label>Move Left</label><button class="bind-btn" id="bind_left" onclick="startBind('left')"></button></div>
@@ -117,7 +177,7 @@
         </div>
 
         <div id="endlessSettingsMenu" class="menu-overlay hidden">
-            <h1 class="menu-title" style="font-size: 40px; margin-top: 20px; margin-bottom: 10px;">ENDLESS OPTIONS</h1>
+            <h1 class="menu-title" style="font-size: clamp(30px, 5vw, 40px); margin-bottom: 10px;">ENDLESS OPTIONS</h1>
             <div class="settings-container" style="color: #fff;">
                 <div class="settings-category">The World</div>
                 <div class="settings-row"><label>Blood Moon Freq.</label><input type="range" id="eo_bmFreq" min="1" max="14" step="1" oninput="updateEO('bmFreq')"><span id="val_bmFreq"></span></div>
@@ -147,7 +207,7 @@
                 <div class="settings-row"><label>Boss Speed</label><input type="range" id="eo_bSpeed" min="0.1" max="3" step="0.1" oninput="updateEO('bSpeed')"><span id="val_bSpeed"></span></div>
                 <div class="settings-row"><label>Boss Scale (Size)</label><input type="range" id="eo_bossSize" min="0.5" max="3" step="0.1" oninput="updateEO('bossSize')"><span id="val_bossSize"></span></div>
 
-                <div class="settings-category">Mutators & Cheats</div>
+                <div class="settings-category">Mutators</div>
                 <div class="settings-row" style="justify-content: flex-start;"><input type="checkbox" id="eo_infStamReg"><label>Infinite Stamina (Normal Nights)</label></div>
                 <div class="settings-row" style="justify-content: flex-start;"><input type="checkbox" id="eo_infStamBM"><label>Infinite Stamina (Blood Moons)</label></div>
                 <div class="settings-row" style="justify-content: flex-start;"><input type="checkbox" id="eo_dojoRegen"><label>Dojo Auto-Regen (Daytime)</label></div>
@@ -161,7 +221,7 @@
 
         <div id="pauseMenu" class="menu-overlay hidden">
             <h1 class="menu-title">PAUSED</h1>
-            <button class="arcade-btn" onclick="gameEngine.togglePause()">RESUME (P)</button>
+            <button class="arcade-btn" onclick="gameEngine.togglePause()">RESUME</button>
             <button class="arcade-btn" onclick="openSettings()">SETTINGS</button>
             <button class="arcade-btn" onclick="quitToMenu()">MAIN MENU</button>
         </div>
@@ -175,18 +235,31 @@
 
         <div id="victoryMenu" class="menu-overlay hidden">
             <h1 class="menu-title">VICTORY</h1>
-            <p style="font-size: 24px; margin-bottom: 10px;">The Dojo stands. The Warlord's vessel is shattered.</p>
-            <p style="font-size: 24px; color: #d32f2f; margin-bottom: 30px; font-weight: bold;">ENDLESS MODE UNLOCKED</p>
+            <p style="font-size: 24px; margin-bottom: 10px; text-align:center; padding: 0 20px;">The Dojo stands. The Warlord's vessel is shattered.</p>
+            <p style="font-size: 24px; color: #d32f2f; margin-bottom: 30px; font-weight: bold; text-align:center;">ENDLESS MODE UNLOCKED</p>
             <button class="arcade-btn" onclick="restartGame()">CONTINUE</button>
             <button class="arcade-btn" onclick="quitToMenu()">MAIN MENU</button>
         </div>
+        
+        <div class="controls" id="footerControls"></div>
     </div>
-
-    <div class="controls" id="footerControls"></div>
 
 <script>
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
+
+    // ==========================================
+    // DEVICE DETECTION & FULLSCREEN LOGIC
+    // ==========================================
+    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    
+    function requestMobileOptimization() {
+        if (isTouchDevice) {
+            document.getElementById('orientationWarning').classList.remove('hidden');
+            if(document.documentElement.requestFullscreen) { document.documentElement.requestFullscreen().catch((e)=>{}); }
+            if(screen.orientation && screen.orientation.lock) { screen.orientation.lock('landscape').catch((e)=>{}); }
+        }
+    }
 
     // ==========================================
     // KEY BINDING SYSTEM
@@ -202,14 +275,20 @@
     }
     
     function updateControlsUI() {
-        document.getElementById('footerControls').innerHTML = `
-            <p>Move: <kbd>${getDisplayKey(userKeys.up)}</kbd><kbd>${getDisplayKey(userKeys.left)}</kbd><kbd>${getDisplayKey(userKeys.down)}</kbd><kbd>${getDisplayKey(userKeys.right)}</kbd> | Sleep: <kbd>${getDisplayKey(userKeys.sleep)}</kbd> | Pause: <kbd>${getDisplayKey(userKeys.pause)}</kbd> or <kbd>ESC</kbd></p>
-            <p>Punch: <kbd>Left Click</kbd> or <kbd>${getDisplayKey(userKeys.punch)}</kbd> | Spin: <kbd>Right Click</kbd> or <kbd>${getDisplayKey(userKeys.spin)}</kbd> | Eat: <kbd>${getDisplayKey(userKeys.eat)}</kbd></p>`;
-        
-        ['up','left','down','right','punch','spin','sleep','eat','pause'].forEach(act => {
-            let btn = document.getElementById('bind_' + act);
-            if(btn) { btn.innerText = getDisplayKey(userKeys[act]); btn.classList.remove('waiting'); }
-        });
+        let footer = document.getElementById('footerControls');
+        if (isTouchDevice) {
+            footer.classList.add('hidden'); // Hide footer text on mobile
+            document.getElementById('controlsBtn').classList.add('hidden'); // Hide keybind menu on mobile
+        } else {
+            footer.innerHTML = `
+                <p>Move: <kbd>${getDisplayKey(userKeys.up)}</kbd><kbd>${getDisplayKey(userKeys.left)}</kbd><kbd>${getDisplayKey(userKeys.down)}</kbd><kbd>${getDisplayKey(userKeys.right)}</kbd> | Sleep: <kbd>${getDisplayKey(userKeys.sleep)}</kbd> | Pause: <kbd>${getDisplayKey(userKeys.pause)}</kbd> or <kbd>ESC</kbd></p>
+                <p>Punch: <kbd>Left Click</kbd> or <kbd>${getDisplayKey(userKeys.punch)}</kbd> | Spin: <kbd>Right Click</kbd> or <kbd>${getDisplayKey(userKeys.spin)}</kbd> | Eat: <kbd>${getDisplayKey(userKeys.eat)}</kbd></p>`;
+            
+            ['up','left','down','right','punch','spin','sleep','eat','pause'].forEach(act => {
+                let btn = document.getElementById('bind_' + act);
+                if(btn) { btn.innerText = getDisplayKey(userKeys[act]); btn.classList.remove('waiting'); }
+            });
+        }
     }
 
     function startBind(action) {
@@ -304,9 +383,9 @@
         const surBtn = document.createElement('button'); surBtn.className = 'arcade-btn'; surBtn.onclick = () => startGame('SURVIVAL'); surBtn.innerText = 'SURVIVAL';
         const epiBtn = document.createElement('button'); epiBtn.className = 'arcade-btn'; epiBtn.onclick = startEpilogueMenu; epiBtn.innerText = 'EPILOGUE';
 
-        const endWrap = document.createElement('div'); endWrap.style.display = 'flex'; endWrap.style.margin = '10px';
-        const endBtn = document.createElement('button'); endBtn.className = 'arcade-btn'; endBtn.onclick = () => startGame('ENDLESS'); endBtn.innerText = 'ENDLESS MODE'; endBtn.style.margin = '0'; endBtn.style.width = '285px';
-        const gearBtn = document.createElement('button'); gearBtn.className = 'arcade-btn'; gearBtn.onclick = openEndlessSettings; gearBtn.innerText = '⚙'; gearBtn.style.margin = '0 0 0 10px'; gearBtn.style.width = '55px'; gearBtn.style.padding = '12px 0';
+        const endWrap = document.createElement('div'); endWrap.style.display = 'flex'; endWrap.style.margin = '10px'; endWrap.style.width = '80%'; endWrap.style.maxWidth = '390px';
+        const endBtn = document.createElement('button'); endBtn.className = 'arcade-btn'; endBtn.onclick = () => startGame('ENDLESS'); endBtn.innerText = 'ENDLESS MODE'; endBtn.style.margin = '0'; endBtn.style.flex = '1';
+        const gearBtn = document.createElement('button'); gearBtn.className = 'arcade-btn'; gearBtn.onclick = openEndlessSettings; gearBtn.innerText = '⚙'; gearBtn.style.margin = '0 0 0 10px'; gearBtn.style.width = '60px'; gearBtn.style.padding = '12px 0';
         endWrap.appendChild(endBtn); endWrap.appendChild(gearBtn);
 
         container.appendChild(document.createElement('button')).className='hidden'; 
@@ -338,7 +417,7 @@
     function closeControlsMenu() { hideAllMenus(); document.getElementById('settingsMenu').classList.remove('hidden'); bindingAction = null; }
 
     function restartGame() { hideAllMenus(); if (gameEngine.state === 'VICTORY') gameEngine.startRun('SURVIVAL'); else if (gameEngine.gameMode === 'TUTORIAL') gameEngine.startTutorial(); else gameEngine.startRun(gameEngine.gameMode); }
-    function quitToMenu() { hideAllMenus(); document.getElementById('mainMenu').classList.remove('hidden'); gameEngine.state = 'START'; gameEngine.paused = false; renderMenuButtons(); }
+    function quitToMenu() { hideAllMenus(); document.getElementById('mainMenu').classList.remove('hidden'); gameEngine.state = 'START'; gameEngine.paused = false; renderMenuButtons(); if(isTouchDevice) document.getElementById('touchUI').classList.add('hidden');}
 
     class AudioEngine {
         constructor() { this.ctx = null; this.muted = false; }
@@ -494,8 +573,10 @@
                 this.player.isSpinning = false;
                 hideAllMenus();
                 document.getElementById('pauseMenu').classList.remove('hidden');
+                if (isTouchDevice) document.getElementById('touchUI').classList.add('hidden');
             } else {
                 hideAllMenus();
+                if (isTouchDevice) document.getElementById('touchUI').classList.remove('hidden');
             }
         }
 
@@ -525,11 +606,64 @@
         }
 
         bindInput() {
+            // TOUCH VIRTUAL CONTROLS
+            if (isTouchDevice) {
+                let joyBase = document.getElementById('joystickBase');
+                let joyStick = document.getElementById('joystickStick');
+                let joyActive = false; let joyOrigin = {x:0, y:0}; let joyMax = 40;
+
+                joyBase.addEventListener('touchstart', (e) => {
+                    e.preventDefault(); joyActive = true;
+                    let rect = joyBase.getBoundingClientRect();
+                    joyOrigin = { x: rect.left + rect.width/2, y: rect.top + rect.height/2 };
+                    updateJoy(e.touches[0]);
+                }, {passive: false});
+
+                joyBase.addEventListener('touchmove', (e) => {
+                    e.preventDefault(); if (joyActive) updateJoy(e.touches[0]);
+                }, {passive: false});
+
+                const stopJoy = (e) => {
+                    e.preventDefault(); joyActive = false;
+                    joyStick.style.transform = `translate(0px, 0px)`;
+                    this.keys.up = false; this.keys.down = false; this.keys.left = false; this.keys.right = false;
+                };
+                joyBase.addEventListener('touchend', stopJoy); joyBase.addEventListener('touchcancel', stopJoy);
+
+                const updateJoy = (touch) => {
+                    let dx = touch.clientX - joyOrigin.x; let dy = touch.clientY - joyOrigin.y;
+                    let dist = Math.hypot(dx, dy);
+                    if (dist > joyMax) { dx = (dx/dist)*joyMax; dy = (dy/dist)*joyMax; }
+                    joyStick.style.transform = `translate(${dx}px, ${dy}px)`;
+                    
+                    let deadzone = 10;
+                    this.keys.up = dy < -deadzone;
+                    this.keys.down = dy > deadzone;
+                    this.keys.left = dx < -deadzone;
+                    this.keys.right = dx > deadzone;
+                };
+
+                const bindTouchBtn = (id, keyName) => {
+                    let btn = document.getElementById(id);
+                    if(!btn) return;
+                    btn.addEventListener('touchstart', (e) => { e.preventDefault(); this.keys[keyName] = true; }, {passive:false});
+                    btn.addEventListener('touchend', (e) => { 
+                        e.preventDefault(); this.keys[keyName] = false; 
+                        if(keyName === 'sleep') this.eReady = true; 
+                        if(keyName === 'eat') this.rReady = true; 
+                        if(keyName === 'spin') this.shiftReady = true; 
+                    });
+                };
+                bindTouchBtn('btnPunch', 'punch'); bindTouchBtn('btnSpin', 'spin');
+                bindTouchBtn('btnEat', 'eat'); bindTouchBtn('btnSleep', 'sleep');
+            }
+
+            // MOUSE & KEYBOARD
             document.addEventListener('mousedown', (e) => {
                 if (e.target !== canvas && ['PLAYING', 'TUTORIAL', 'SUNRISE'].includes(this.state)) {
                     for (let k in this.keys) this.keys[k] = false; this.mouse.left = false; this.mouse.right = false;
                     this.player.isMoving = false; this.player.isAttacking = false; this.player.isSpinning = false;
-                    if (!this.paused) this.togglePause();
+                    if (!this.paused && !isTouchDevice) this.togglePause();
                 }
             });
             window.addEventListener('blur', () => {
@@ -766,6 +900,7 @@
             sfx.sfxVictory();
             hideAllMenus();
             document.getElementById('victoryMenu').classList.remove('hidden');
+            if (isTouchDevice) document.getElementById('touchUI').classList.add('hidden');
             setTimeout(() => { this.canRestart = true; }, 1500);
         }
 
@@ -774,8 +909,11 @@
         }
 
         startRun(mode) {
+            requestMobileOptimization();
             localStorage.setItem('lastDojoPlayed', 'true'); renderMenuButtons();
             hideAllMenus();
+            if (isTouchDevice) document.getElementById('touchUI').classList.remove('hidden');
+            
             this.gameMode = mode; sfx.init(); this.canRestart = false; 
             this.timeTimer = 1000; this.isDay = true; this.dayCount = 1; this.food = 0; this.sleepFade = 0;
             this.isSiege = false; this.shake = 0; this.paused = false; this.announceTimer = 0; this.hitStop = 0;
@@ -793,8 +931,11 @@
         }
 
         startTutorial() {
+            requestMobileOptimization();
             localStorage.setItem('lastDojoPlayed', 'true'); renderMenuButtons();
             hideAllMenus();
+            if (isTouchDevice) document.getElementById('touchUI').classList.remove('hidden');
+
             sfx.init(); this.canRestart = false;
             this.gameMode = 'TUTORIAL';
             this.isDay = true; this.food = 0; this.sleepFade = 0; this.isSiege = false; this.shake = 0; this.paused = false; this.hitStop = 0;
@@ -823,14 +964,14 @@
                 case 4: this.tutText = "It requires immense lunar energy to manifest. For now, we prepare."; if (this.tutTimer <= 0) { this.tutPhase = 5; this.tutTimer = 180; } break;
                 case 5: this.tutText = "You are the last Master. You alone keep the Dojo standing."; if (this.tutTimer <= 0) { this.tutPhase = 6; this.tutTimer = 180; } break;
                 case 6: this.tutText = "The dead burn in the sunlight. But the nights are long."; if (this.tutTimer <= 0) { this.tutPhase = 7; this.tutTimer = 30; } break;
-                case 7: this.tutText = `Use ${kU}, ${kL}, ${kD}, ${kR} to move.`; if (this.tutTimer <= 0 && this.player.isMoving) { this.tutPhase = 8; this.tutTimer = 30; sfx.sfxLore(); } break;
-                case 8: this.tutText = `Training increases Max Stamina. Level it up. (${kP} to Punch)`; break;
-                case 9: this.tutText = `When surrounded, the Hurricane creates space. (${kS} to Spin)`; break;
+                case 7: this.tutText = isTouchDevice ? "Use the Virtual Joystick to move." : `Use ${kU}, ${kL}, ${kD}, ${kR} to move.`; if (this.tutTimer <= 0 && this.player.isMoving) { this.tutPhase = 8; this.tutTimer = 30; sfx.sfxLore(); } break;
+                case 8: this.tutText = isTouchDevice ? "Training increases Max Stamina. (Tap PUNCH)" : `Training increases Max Stamina. Level it up. (${kP} to Punch)`; break;
+                case 9: this.tutText = isTouchDevice ? "When surrounded, the Hurricane creates space. (Tap SPIN)" : `When surrounded, the Hurricane creates space. (${kS} to Spin)`; break;
                 case 10: this.tutText = "Attacks drain Stamina (Blue). Without it, you are defenseless. Exhaust it."; if (this.player.stamina <= 30) { this.tutPhase = 11; this.tutTimer = 120; sfx.sfxLore(); this.player.condition = 10; } break;
                 case 11: this.tutText = "Notice how slow Stamina recovers? It depends on your Condition (Yellow)."; if (this.tutTimer <= 0) { if (this.boxes.length === 0) this.spawnBox(); this.tutPhase = 12; this.tutTimer = 60; sfx.sfxLore(); } break;
                 case 12: this.tutText = "You are starving. Break the crate to scavenge meat."; if (this.food > 0) { this.tutPhase = 13; this.tutTimer = 60; sfx.sfxLore(); } break;
-                case 13: this.tutText = `Eat the meat to restore your Condition. (Press ${kEat} to Eat)`; if (this.keys.eat && this.rReady) { this.food--; this.player.condition = 100; this.spawnText(this.player.x+20, this.player.y, "+FOOD", "#44aa44"); this.rReady = false; this.tutPhase = 14; this.tutTimer = 60; sfx.sfxLore(); this.player.hp = 500; } break;
-                case 14: this.tutText = `Rest near the Dojo to heal HP (Red). (Press ${kE} near Dojo)`; if (this.keys.sleep && this.eReady && Math.abs(this.player.x - this.dojo.x) < 60 && Math.abs(this.player.y - this.dojo.y) < 60) { this.player.hp = 1000; this.sleepFade = 60; this.eReady = false; this.tutPhase = 15; this.tutTimer = 120; sfx.sfxLore(); } break;
+                case 13: this.tutText = isTouchDevice ? "Eat the meat to restore your Condition. (Tap EAT)" : `Eat the meat to restore your Condition. (Press ${kEat} to Eat)`; if (this.keys.eat && this.rReady) { this.food--; this.player.condition = 100; this.spawnText(this.player.x+20, this.player.y, "+FOOD", "#44aa44"); this.rReady = false; this.tutPhase = 14; this.tutTimer = 60; sfx.sfxLore(); this.player.hp = 500; } break;
+                case 14: this.tutText = isTouchDevice ? "Rest near the Dojo to heal HP (Red). (Tap REST)" : `Rest near the Dojo to heal HP (Red). (Press ${kE} near Dojo)`; if (this.keys.sleep && this.eReady && Math.abs(this.player.x - this.dojo.x) < 60 && Math.abs(this.player.y - this.dojo.y) < 60) { this.player.hp = 1000; this.sleepFade = 60; this.eReady = false; this.tutPhase = 15; this.tutTimer = 120; sfx.sfxLore(); } break;
                 case 15: 
                     this.tutText = "Night falls. The dead hunt the living! Survive!"; 
                     this.isDay = false; this.isSiege = false; 
@@ -850,7 +991,7 @@
                     } 
                     break;
                 case 18: this.tutText = "...surviving its radiation mutates your blood, making you stronger."; if (this.tutTimer <= 0) { this.tutPhase = 19; this.tutTimer = 180; sfx.sfxLore(); } break;
-                case 19: this.tutText = "Your awakening is complete. Now, survive the true nightmare."; if (this.tutTimer <= 0) { localStorage.setItem('lastDojoPrologueDone', 'true'); document.getElementById('mainMenu').classList.remove('hidden'); this.state = 'START'; renderMenuButtons(); } break;
+                case 19: this.tutText = "Your awakening is complete. Now, survive the true nightmare."; if (this.tutTimer <= 0) { localStorage.setItem('lastDojoPrologueDone', 'true'); document.getElementById('mainMenu').classList.remove('hidden'); this.state = 'START'; renderMenuButtons(); if(isTouchDevice) document.getElementById('touchUI').classList.add('hidden'); } break;
             }
         }
 
@@ -936,7 +1077,6 @@
                     if (this.isDay) {
                         this.dayCount++; this.isSiege = false; this.announceText = "DAY " + this.dayCount;
                         
-                        // LAVA MUTATOR FIX: Add pool, remove oldest if over limit to prevent memory leak
                         if (this.gameMode === 'ENDLESS' && endlessConfig.lavaMode) {
                             this.damagePools.push({ x: Math.random()*canvas.width, y: Math.random()*canvas.height, life: 999999 });
                             let lavaCount = this.damagePools.filter(dp => dp.life > 100000).length;
@@ -1135,9 +1275,9 @@
                 
                 if (z.burning) { 
                     if (z.type === 'warlord' && this.state === 'SUNRISE') {
-                        return; // Boss detonation is handled in the sunrise logic
+                        return; 
                     } else {
-                        z.hp -= (z.type === 'warlord' ? 150 : 3); 
+                        z.hp -= (z.type === 'warlord' ? 0 : 3); 
                         if (Math.random() < 0.2) this.spawnParticles(z.x+20, z.y+20, '#ff9900', 1); 
                     }
                     
@@ -1249,6 +1389,7 @@
                 document.getElementById('goDesc').innerText = wasTutorial ? "Tutorial Failed" : `Survived to Day ${this.dayCount}`;
                 hideAllMenus();
                 document.getElementById('gameOverMenu').classList.remove('hidden');
+                if (isTouchDevice) document.getElementById('touchUI').classList.add('hidden');
 
                 setTimeout(() => { this.canRestart = true; }, 1000);
             }
