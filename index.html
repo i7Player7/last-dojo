@@ -3,22 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Last Dojo - V1.1.2</title>
+    <title>Last Dojo - V1.2.1</title>
     <style>
         html, body { 
             margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; 
             background-color: #0a0a0a; color: #eee; font-family: 'Courier New', Courier, monospace; 
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
             user-select: none; -webkit-user-select: none; touch-action: none;
+        }
+
+        /* THE CSS PORTRAIT HACK */
+        @media (orientation: portrait) {
+            #gameContainer {
+                position: absolute;
+                top: 50%; left: 50%;
+                width: 100vh; height: 100vw;
+                transform: translate(-50%, -50%) rotate(90deg);
+            }
+        }
+        @media (orientation: landscape) {
+            #gameContainer {
+                position: absolute;
+                top: 0; left: 0;
+                width: 100vw; height: 100vh;
+            }
         }
         
         #gameContainer {
-            position: relative; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center;
+            display: flex; align-items: center; justify-content: center; overflow: hidden;
         }
 
         canvas { 
             background-color: #3b4d3e; 
-            width: 100vw; height: 100vh; 
+            width: 100%; height: 100%; 
             object-fit: contain; 
             cursor: crosshair; image-rendering: pixelated; display: block;
         }
@@ -28,21 +44,23 @@
             background: radial-gradient(circle at 50% 30%, #3a0000 0%, #0a0a0a 70%);
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             z-index: 20;
+            box-sizing: border-box;
+            padding: 20px;
         }
         
         .hidden { display: none !important; }
         
         .menu-title { 
-            font-size: clamp(40px, 8vw, 80px); color: #d32f2f; 
+            font-size: clamp(36px, 6vw, 80px); color: #d32f2f; 
             text-shadow: 4px 4px #000, 0 0 30px #d32f2f; 
-            margin: 0 0 20px 0; letter-spacing: 5px; font-weight: 900; text-align: center;
+            margin: 0 0 15px 0; letter-spacing: 5px; font-weight: 900; text-align: center;
         }
         
         .arcade-btn {
-            background: #111; border: 2px solid #d32f2f; padding: 12px 20px;
-            font-family: 'Courier New', Courier, monospace; font-size: clamp(16px, 3vw, 24px); font-weight: bold;
-            color: #eee; cursor: pointer; margin: 8px; box-shadow: 0 4px 0 #8a1f1f;
-            transition: all 0.1s; text-transform: uppercase; width: 80%; max-width: 350px;
+            background: #111; border: 2px solid #d32f2f; padding: clamp(8px, 1.5vh, 14px) 20px;
+            font-family: 'Courier New', Courier, monospace; font-size: clamp(14px, 2.5vw, 24px); font-weight: bold;
+            color: #eee; cursor: pointer; margin: 6px; box-shadow: 0 4px 0 #8a1f1f;
+            transition: all 0.1s; text-transform: uppercase; width: 85%; max-width: 340px;
             box-sizing: border-box;
         }
         
@@ -52,49 +70,47 @@
         .pulse { animation: pulseAnim 1.5s infinite; }
         @keyframes pulseAnim {
             0% { transform: scale(1); box-shadow: 0 4px 0 #8a1f1f; }
-            50% { transform: scale(1.05); box-shadow: 0 4px 20px #d32f2f; border-color: #ff5555; }
+            50% { transform: scale(1.03); box-shadow: 0 4px 20px #d32f2f; border-color: #ff5555; }
             100% { transform: scale(1); box-shadow: 0 4px 0 #8a1f1f; }
         }
 
         #highScoreDisplay {
-            color: #ffcc00; font-weight: bold; margin-top: -10px; margin-bottom: 20px; 
-            letter-spacing: 2px; font-size: clamp(14px, 3vw, 20px); text-shadow: 2px 2px #000;
+            color: #ffcc00; font-weight: bold; margin-top: -5px; margin-bottom: 15px; 
+            letter-spacing: 2px; font-size: clamp(12px, 2.2vw, 20px); text-shadow: 2px 2px #000;
         }
 
-        /* Settings UI */
         .settings-container {
-            width: 90%; max-width: 500px; height: 50vh; overflow-y: auto; background: rgba(0,0,0,0.5); 
-            border: 2px solid #555; padding: 15px; border-radius: 8px; margin-bottom: 10px;
+            width: 95%; max-width: 480px; height: 42vh; overflow-y: auto; background: rgba(0,0,0,0.5); 
+            border: 2px solid #555; padding: 12px; border-radius: 8px; margin-bottom: 10px;
         }
         .settings-container::-webkit-scrollbar { width: 8px; }
         .settings-container::-webkit-scrollbar-thumb { background: #d32f2f; border-radius: 4px; }
         
-        .settings-category { color: #d32f2f; font-weight: bold; font-size: 20px; margin: 15px 0 10px 0; border-bottom: 1px solid #d32f2f; padding-bottom: 5px; text-align: left;}
-        .settings-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-size: clamp(12px, 2.5vw, 16px);}
+        .settings-category { color: #d32f2f; font-weight: bold; font-size: 18px; margin: 10px 0 8px 0; border-bottom: 1px solid #d32f2f; padding-bottom: 3px; text-align: left;}
+        .settings-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: clamp(11px, 2.2vw, 15px);}
         .settings-row label { flex: 2; text-align: left; }
-        .settings-row input[type=range] { flex: 2; margin: 0 10px; cursor: pointer; accent-color: #ffcc00;}
-        .settings-row input[type=checkbox] { transform: scale(1.5); margin-right: 10px; cursor: pointer; accent-color: #d32f2f;}
+        .settings-row input[type=range] { flex: 2; margin: 0 8px; cursor: pointer; accent-color: #ffcc00;}
+        .settings-row input[type=checkbox] { transform: scale(1.3); margin-right: 8px; cursor: pointer; accent-color: #d32f2f;}
         
         .num-input { 
-            flex: 0.8; width: 60px; background: #222; border: 1px solid #d32f2f; 
-            color: #ffcc00; font-family: monospace; font-size: 16px; padding: 4px; text-align: center;
+            flex: 0.7; width: 55px; background: #222; border: 1px solid #d32f2f; 
+            color: #ffcc00; font-family: monospace; font-size: 14px; padding: 3px; text-align: center;
             user-select: auto; -webkit-user-select: auto; 
         }
         .num-input:focus { outline: none; border-color: #ffcc00; }
         
-        .bind-btn { background: #222; border: 1px solid #d32f2f; color: #ffcc00; padding: 4px 10px; font-family: inherit; font-size: clamp(12px, 2.5vw, 16px); cursor: pointer; width: 100px; text-align: center;}
+        .bind-btn { background: #222; border: 1px solid #d32f2f; color: #ffcc00; padding: 3px 8px; font-family: inherit; font-size: clamp(11px, 2.2vw, 15px); cursor: pointer; width: 95px; text-align: center;}
         .bind-btn.waiting { background: #d32f2f; color: #fff; animation: pulseAnim 1s infinite; }
 
-        /* Mobile Touch Controls UI - Cluster Layout */
-        #touchUI {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 15;
-        }
-        .touch-zone { pointer-events: auto; position: absolute; }
+        /* Mobile Touch Controls UI */
+        #touchUI { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 15; overflow: hidden;}
         
+        #joystickZone { position: absolute; top: 0; left: 0; width: 50%; height: 100%; pointer-events: auto; }
         #joystickBase {
-            position: absolute; bottom: 40px; left: 40px; width: 120px; height: 120px;
+            position: absolute; width: 120px; height: 120px;
             background: rgba(255, 255, 255, 0.1); border: 2px solid rgba(255, 255, 255, 0.3);
-            border-radius: 50%; pointer-events: auto; display: flex; align-items: center; justify-content: center;
+            border-radius: 50%; pointer-events: none; display: flex; align-items: center; justify-content: center;
+            transform: translate(-50%, -50%); display: none;
         }
         #joystickStick {
             width: 50px; height: 50px; background: rgba(255, 204, 0, 0.6);
@@ -105,46 +121,44 @@
             background: rgba(211, 47, 47, 0.4); border: 2px solid rgba(211, 47, 47, 0.8);
             border-radius: 50%; color: #fff; font-weight: bold; font-family: monospace;
             display: flex; align-items: center; justify-content: center;
-            pointer-events: auto; text-shadow: 1px 1px 2px #000;
+            pointer-events: auto; text-shadow: 1px 1px 2px #000; position: absolute;
+            transform: translate(-50%, -50%);
         }
-        .touch-btn:active { background: rgba(211, 47, 47, 0.8); transform: scale(0.9); }
+        .touch-btn:active { background: rgba(211, 47, 47, 0.8); transform: translate(-50%, -50%) scale(0.9); }
+        .touch-btn.editing { border: 2px dashed #ffcc00; background: rgba(211, 47, 47, 0.6); animation: pulseAnim 1s infinite; }
         
-        #btnPunch { width: 90px; height: 90px; bottom: 30px; right: 30px; font-size: 20px;}
-        #btnSpin  { width: 65px; height: 65px; bottom: 125px; right: 105px; font-size: 14px;}
-        #btnEat   { width: 60px; height: 60px; bottom: 135px; right: 30px; font-size: 14px; background: rgba(255, 204, 0, 0.4); border-color: rgba(255, 204, 0, 0.8);}
-        #btnSleep { width: 60px; height: 60px; bottom: 30px; right: 135px; font-size: 14px; background: rgba(68, 170, 68, 0.4); border-color: rgba(68, 170, 68, 0.8);}
-        
-        #btnPause { width: 45px; height: 45px; top: 20px; left: 20px; font-size: 14px; background: rgba(255, 255, 255, 0.2); border-color: rgba(255, 255, 255, 0.5); border-radius: 8px;}
+        /* Default HUD Layout percentages */
+        #btnPunch { width: 90px; height: 90px; left: 88%; top: 80%; font-size: 20px;}
+        #btnSpin  { width: 65px; height: 65px; left: 75%; top: 65%; font-size: 14px;}
+        #btnEat   { width: 60px; height: 60px; left: 88%; top: 50%; font-size: 14px; background: rgba(255, 204, 0, 0.4); border-color: rgba(255, 204, 0, 0.8);}
+        #btnSleep { width: 60px; height: 60px; left: 70%; top: 82%; font-size: 14px; background: rgba(68, 170, 68, 0.4); border-color: rgba(68, 170, 68, 0.8);}
+        #btnPause { width: 45px; height: 45px; left: 5%; top: 10%; font-size: 14px; background: rgba(255, 255, 255, 0.2); border-color: rgba(255, 255, 255, 0.5); border-radius: 8px;}
 
-        /* Mobile Orientation Warning */
-        #orientationWarning {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; color: #d32f2f;
-            display: flex; align-items: center; justify-content: center; flex-direction: column; z-index: 9999;
-            text-align: center; font-family: monospace; font-weight: bold; font-size: 30px;
-        }
-        
-        @media (orientation: landscape) {
-            #orientationWarning { display: none !important; }
+        #hudEditOverlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(0,0,0,0.7); z-index: 14; pointer-events: auto; display: flex;
+            justify-content: center; align-items: flex-start; padding-top: 15px; gap: 15px;
         }
     </style>
 </head>
 <body>
 
-    <div id="orientationWarning" class="hidden">
-        <h1>PLEASE ROTATE<br>YOUR DEVICE</h1>
-        <p style="color: #fff; font-size: 16px;">Last Dojo requires Landscape Mode.</p>
-    </div>
-
     <div id="gameContainer">
         <canvas id="gameCanvas" width="1024" height="576"></canvas>
 
         <div id="touchUI" class="hidden">
+            <div id="joystickZone"></div>
             <div id="joystickBase"><div id="joystickStick"></div></div>
             <div id="btnPunch" class="touch-zone touch-btn">PUNCH</div>
             <div id="btnSpin" class="touch-zone touch-btn">SPIN</div>
             <div id="btnEat" class="touch-zone touch-btn">EAT</div>
             <div id="btnSleep" class="touch-zone touch-btn">REST</div>
-            <div id="btnPause" class="touch-zone touch-btn" onclick="gameEngine.togglePause()">||</div>
+            <div id="btnPause" class="touch-zone touch-btn" onclick="if(!isEditingHUD) gameEngine.togglePause()">||</div>
+        </div>
+
+        <div id="hudEditOverlay" class="hidden">
+            <button class="arcade-btn" style="width: auto; max-width: 160px; margin: 0 4px;" onclick="saveMobileHUD()">SAVE HUD</button>
+            <button class="arcade-btn" style="width: auto; max-width: 160px; margin: 0 4px;" onclick="resetMobileHUD()">RESET DEFAULT</button>
         </div>
 
         <div id="mainMenu" class="menu-overlay">
@@ -156,12 +170,12 @@
         <div id="settingsMenu" class="menu-overlay hidden">
             <h1 class="menu-title">SETTINGS</h1>
             <button class="arcade-btn" id="audioBtn" onclick="toggleAudio()">AUDIO: ON</button>
-            <button class="arcade-btn" id="controlsBtn" onclick="openControlsMenu()">EDIT CONTROLS</button>
+            <button class="arcade-btn" onclick="openControlsMenu()">EDIT CONTROLS</button>
             <button class="arcade-btn" onclick="closeSettings()" style="margin-top: 20px;">BACK</button>
         </div>
 
         <div id="controlsMenu" class="menu-overlay hidden">
-            <h1 class="menu-title" style="font-size: clamp(30px, 5vw, 40px); margin-bottom: 10px;">KEYBINDS</h1>
+            <h1 class="menu-title" style="font-size: clamp(24px, 4vw, 40px); margin-bottom: 10px;">KEYBINDS</h1>
             <div class="settings-container">
                 <div class="settings-row"><label>Move Up</label><button class="bind-btn" id="bind_up" onclick="startBind('up')"></button></div>
                 <div class="settings-row"><label>Move Left</label><button class="bind-btn" id="bind_left" onclick="startBind('left')"></button></div>
@@ -177,7 +191,7 @@
         </div>
 
         <div id="endlessSettingsMenu" class="menu-overlay hidden">
-            <h1 class="menu-title" style="font-size: clamp(30px, 5vw, 40px); margin-top: 20px; margin-bottom: 10px;">ENDLESS OPTIONS</h1>
+            <h1 class="menu-title" style="font-size: clamp(24px, 4vw, 40px); margin-bottom: 10px;">ENDLESS OPTIONS</h1>
             <div class="settings-container" style="color: #fff;">
                 <div class="settings-category">The World</div>
                 <div class="settings-row"><label>Blood Moon Freq.</label><input type="range" id="eo_bmFreq" min="1" max="14" step="1" oninput="updateEO('bmFreq', this.value)"><input type="number" id="num_bmFreq" class="num-input" min="1" max="14" step="1" oninput="updateEO('bmFreq', this.value)"></div>
@@ -247,10 +261,10 @@
     const ctx = canvas.getContext('2d');
 
     const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    let isEditingHUD = false;
     
     function requestMobileOptimization() {
         if (isTouchDevice) {
-            document.getElementById('orientationWarning').classList.remove('hidden');
             if(document.documentElement.requestFullscreen) { document.documentElement.requestFullscreen().catch((e)=>{}); }
             if(screen.orientation && screen.orientation.lock) { screen.orientation.lock('landscape').catch((e)=>{}); }
         }
@@ -264,6 +278,17 @@
         if (k === ' ') return 'SPACE';
         if (k === 'escape') return 'ESC';
         return k.toUpperCase(); 
+    }
+    
+    function updateControlsUI() {
+        if (isTouchDevice) {
+            document.getElementById('controlsBtn').classList.add('hidden'); 
+        } else {
+            ['up','left','down','right','punch','spin','sleep','eat','pause'].forEach(act => {
+                let btn = document.getElementById('bind_' + act);
+                if(btn) { btn.innerText = getDisplayKey(userKeys[act]); btn.classList.remove('waiting'); }
+            });
+        }
     }
 
     function startBind(action) {
@@ -281,10 +306,7 @@
             userKeys[bindingAction] = k;
             localStorage.setItem('lastDojoKeys', JSON.stringify(userKeys));
             bindingAction = null;
-            ['up','left','down','right','punch','spin','sleep','eat','pause'].forEach(act => {
-                let btn = document.getElementById('bind_' + act);
-                if(btn) { btn.innerText = getDisplayKey(userKeys[act]); btn.classList.remove('waiting'); }
-            });
+            updateControlsUI();
         }
     });
 
@@ -379,12 +401,7 @@
         container.appendChild(document.createElement('div')).style.height = "20px";
         const settingsBtn = document.createElement('button'); settingsBtn.className = 'arcade-btn'; settingsBtn.onclick = openSettings; settingsBtn.innerText = 'SETTINGS';
         container.appendChild(settingsBtn);
-        
-        ['up','left','down','right','punch','spin','sleep','eat','pause'].forEach(act => {
-            let btn = document.getElementById('bind_' + act);
-            if(btn) { btn.innerText = getDisplayKey(userKeys[act]); btn.classList.remove('waiting'); }
-        });
-        if (isTouchDevice) { document.getElementById('controlsBtn').classList.add('hidden'); }
+        updateControlsUI();
     }
     renderMenuButtons();
 
@@ -394,8 +411,62 @@
         if (gameEngine && gameEngine.paused) document.getElementById('pauseMenu').classList.remove('hidden');
         else document.getElementById('mainMenu').classList.remove('hidden'); 
     }
-    function openControlsMenu() { hideAllMenus(); document.getElementById('controlsMenu').classList.remove('hidden'); }
+    
+    const defaultHUD = {
+        btnPunch: { left: '88%', top: '80%' },
+        btnSpin:  { left: '75%', top: '65%' },
+        btnEat:   { left: '88%', top: '50%' },
+        btnSleep: { left: '70%', top: '82%' },
+        btnPause: { left: '5%',  top: '10%' }
+    };
+    
+    function applyHUDPositions() {
+        let savedHUD = JSON.parse(localStorage.getItem('lastDojoMobileHUD')) || defaultHUD;
+        for (let id in savedHUD) {
+            let el = document.getElementById(id);
+            if (el) { el.style.left = savedHUD[id].left; el.style.top = savedHUD[id].top; el.style.right = 'auto'; el.style.bottom = 'auto'; }
+        }
+    }
+    applyHUDPositions();
+
+    function openControlsMenu() { 
+        hideAllMenus(); 
+        if (isTouchDevice) {
+            isEditingHUD = true;
+            document.getElementById('touchUI').classList.remove('hidden');
+            document.getElementById('hudEditOverlay').classList.remove('hidden');
+            document.querySelectorAll('.touch-btn').forEach(btn => btn.classList.add('editing'));
+        } else {
+            document.getElementById('controlsMenu').classList.remove('hidden'); 
+            updateControlsUI(); 
+        }
+    }
+
     function closeControlsMenu() { hideAllMenus(); document.getElementById('settingsMenu').classList.remove('hidden'); bindingAction = null; }
+
+    function saveMobileHUD() {
+        let newHUD = {};
+        ['btnPunch', 'btnSpin', 'btnEat', 'btnSleep', 'btnPause'].forEach(id => {
+            let el = document.getElementById(id);
+            newHUD[id] = { left: el.style.left, top: el.style.top };
+        });
+        localStorage.setItem('lastDojoMobileHUD', JSON.stringify(newHUD));
+        exitHUDMode();
+    }
+
+    function resetMobileHUD() {
+        localStorage.setItem('lastDojoMobileHUD', JSON.stringify(defaultHUD));
+        applyHUDPositions();
+        exitHUDMode();
+    }
+
+    function exitHUDMode() {
+        isEditingHUD = false;
+        document.getElementById('hudEditOverlay').classList.add('hidden');
+        document.getElementById('touchUI').classList.add('hidden');
+        document.querySelectorAll('.touch-btn').forEach(btn => btn.classList.remove('editing'));
+        document.getElementById('settingsMenu').classList.remove('hidden');
+    }
 
     function restartGame() { hideAllMenus(); if (gameEngine.state === 'VICTORY') gameEngine.startRun('SURVIVAL'); else if (gameEngine.gameMode === 'TUTORIAL') gameEngine.startTutorial(); else gameEngine.startRun(gameEngine.gameMode); }
     function quitToMenu() { hideAllMenus(); document.getElementById('mainMenu').classList.remove('hidden'); gameEngine.state = 'START'; gameEngine.paused = false; renderMenuButtons(); if(isTouchDevice) document.getElementById('touchUI').classList.add('hidden');}
@@ -453,13 +524,6 @@
     const sprSun = buildSprite(["..OOOO..",".OUUUUO.","OUUUUUUO","OUUUUUUO","OUUUUUUO","OUUUUUUO",".OUUUUO.","..OOOO.."], 3);
     const sprMoon = buildSprite(["...EEEE.","..EEENNN",".EEEN...",".EEN....",".EEN....",".EEEN...","..EEENNN","...EEEE."], 3);
     const sprBloodMoon = buildSprite(["...FFFF.","..FFFRRR",".FFFR...","..FFR....","..FFR....",".FFFR...","..FFFRRR","...FFFF."], 3);
-
-    (function injectFavicon() {
-        let link = document.createElement('link');
-        link.type = 'image/png'; link.rel = 'icon';
-        link.href = sprDojo.toDataURL();
-        document.head.appendChild(link);
-    })();
 
     function drawCharacter(c, ent, frames, gameMode) {
         let isP = ent.type === 'player'; let t = ent.type; let s = (t === 'brute') ? 1.4 : (t === 'warlord' ? 2.2 : 1.0); 
@@ -601,27 +665,33 @@
 
         bindInput() {
             if (isTouchDevice) {
+                let joyZone = document.getElementById('joystickZone');
                 let joyBase = document.getElementById('joystickBase');
                 let joyStick = document.getElementById('joystickStick');
                 let joyActive = false; let joyOrigin = {x:0, y:0}; let joyMax = 40;
                 let joyTouchId = null;
 
-                joyBase.addEventListener('touchstart', (e) => {
+                joyZone.addEventListener('touchstart', (e) => {
                     e.preventDefault(); 
-                    if (joyActive) return; 
+                    if (joyActive || isEditingHUD) return; 
                     let touch = e.changedTouches[0];
                     joyTouchId = touch.identifier;
                     joyActive = true;
-                    let rect = joyBase.getBoundingClientRect();
-                    joyOrigin = { x: rect.left + rect.width/2, y: rect.top + rect.height/2 };
+                    
+                    joyOrigin = { x: touch.clientX, y: touch.clientY };
+                    joyBase.style.left = (joyOrigin.x) + 'px';
+                    joyBase.style.top = (joyOrigin.y) + 'px';
+                    joyBase.style.bottom = 'auto'; 
+                    joyBase.style.display = 'flex';
+                    
                     updateJoy(touch);
                 }, {passive: false});
 
-                joyBase.addEventListener('touchmove', (e) => {
-                    e.preventDefault(); 
-                    if (!joyActive) return;
+                document.addEventListener('touchmove', (e) => {
+                    if (!joyActive || isEditingHUD) return;
                     for(let i=0; i<e.changedTouches.length; i++) {
                         if(e.changedTouches[i].identifier === joyTouchId) {
+                            e.preventDefault(); 
                             updateJoy(e.changedTouches[i]);
                             break;
                         }
@@ -629,24 +699,32 @@
                 }, {passive: false});
 
                 const stopJoy = (e) => {
-                    e.preventDefault(); 
-                    if (!joyActive) return;
+                    if (!joyActive || isEditingHUD) return;
                     for(let i=0; i<e.changedTouches.length; i++) {
                         if(e.changedTouches[i].identifier === joyTouchId) {
                             joyActive = false;
                             joyTouchId = null;
                             joyStick.style.transform = `translate(0px, 0px)`;
+                            joyBase.style.display = 'none';
                             this.keys.up = false; this.keys.down = false; 
                             this.keys.left = false; this.keys.right = false;
                             break;
                         }
                     }
                 };
-                joyBase.addEventListener('touchend', stopJoy); 
-                joyBase.addEventListener('touchcancel', stopJoy);
+                document.addEventListener('touchend', stopJoy); 
+                document.addEventListener('touchcancel', stopJoy);
 
                 const updateJoy = (touch) => {
                     let dx = touch.clientX - joyOrigin.x; let dy = touch.clientY - joyOrigin.y;
+                    
+                    // FIXED: Swap and transform input vector bounds if window is physically Portrait 
+                    if (window.innerHeight > window.innerWidth) {
+                        let tmp = dx;
+                        dx = dy;
+                        dy = -tmp;
+                    }
+
                     let dist = Math.hypot(dx, dy);
                     if (dist > joyMax) { dx = (dx/dist)*joyMax; dy = (dy/dist)*joyMax; }
                     joyStick.style.transform = `translate(${dx}px, ${dy}px)`;
@@ -661,12 +739,44 @@
                 const bindTouchBtn = (id, keyName) => {
                     let btn = document.getElementById(id);
                     if(!btn) return;
-                    btn.addEventListener('touchstart', (e) => { e.preventDefault(); this.keys[keyName] = true; }, {passive:false});
+                    
+                    let isDragging = false;
+                    
+                    btn.addEventListener('touchstart', (e) => { 
+                        if(isEditingHUD) {
+                            isDragging = true;
+                        } else {
+                            e.preventDefault(); this.keys[keyName] = true; 
+                        }
+                    }, {passive:false});
+                    
+                    btn.addEventListener('touchmove', (e) => {
+                        if (isEditingHUD && isDragging) {
+                            e.preventDefault();
+                            let touch = e.touches[0];
+                            
+                            // FIXED: Translate HUD drag vectors natively inside un-rotated browser metrics
+                            if (window.innerHeight > window.innerWidth) {
+                                btn.style.left = (touch.clientY / window.innerHeight * 100) + '%';
+                                btn.style.top = ((window.innerWidth - touch.clientX) / window.innerWidth * 100) + '%';
+                            } else {
+                                btn.style.left = (touch.clientX / window.innerWidth * 100) + '%';
+                                btn.style.top = (touch.clientY / window.innerHeight * 100) + '%';
+                            }
+                            btn.style.right = 'auto';
+                            btn.style.bottom = 'auto';
+                        }
+                    }, {passive:false});
+
                     btn.addEventListener('touchend', (e) => { 
-                        e.preventDefault(); this.keys[keyName] = false; 
-                        if(keyName === 'sleep') this.eReady = true; 
-                        if(keyName === 'eat') this.rReady = true; 
-                        if(keyName === 'spin') this.shiftReady = true; 
+                        if (isEditingHUD) {
+                            isDragging = false;
+                        } else {
+                            e.preventDefault(); this.keys[keyName] = false; 
+                            if(keyName === 'sleep') this.eReady = true; 
+                            if(keyName === 'eat') this.rReady = true; 
+                            if(keyName === 'spin') this.shiftReady = true; 
+                        }
                     });
                 };
                 bindTouchBtn('btnPunch', 'punch'); bindTouchBtn('btnSpin', 'spin');
@@ -887,6 +997,10 @@
                     if (this.gameMode === 'ENDLESS') actualKnockback *= endlessConfig.knockback;
 
                     z.x += direction * actualKnockback; z.x = Math.max(0, Math.min(canvas.width - z.w, z.x));
+                    
+                    // FIXED: Restrict vertical knockback vector bounds to protect canvas constraints
+                    z.y = Math.max(110, Math.min(canvas.height - z.h, z.y));
+
                     this.spawnParticles(z.x+20, z.y+20, (z.type === 'spitter' ? '#cddc39' : '#d32f2f'), 8); this.spawnText(z.x+20, z.y, `-${damage}`, "#fff"); 
                     this.shake = Math.max(this.shake, z.type === 'brute' ? 8 : (z.type === 'warlord' ? 12 : 4)); 
                     
@@ -1175,7 +1289,7 @@
                             }
                         }
 
-                        this.enemies.forEach(z => { if (z.type !== 'straggler') z.burning = true; });
+                        this.enemies.forEach(z => { if (z !== bossInstance && z.type !== 'straggler') z.burning = true; });
                         let cratesToSpawn = this.gameMode === 'ENDLESS' ? endlessConfig.crates : 3;
                         for(let i=0; i<cratesToSpawn; i++) this.spawnBox(); 
                         this.loot = []; this.projectiles = []; this.corpses = []; 
@@ -1340,7 +1454,11 @@
                 }
             });
 
+            // FIXED: Scope isolation pointer optimization
+            let bossInstance = null;
+
             this.enemies.forEach(z => {
+                if (z.type === 'warlord') bossInstance = z;
                 
                 if (z.isCasting > 0) {
                     z.isCasting--;
