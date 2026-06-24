@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Last Dojo - V1.3</title>
+    <title>Last Dojo - V1.4</title>
     <style>
         html, body { 
             margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; 
@@ -388,9 +388,10 @@
         const surBtn = document.createElement('button'); surBtn.className = 'arcade-btn'; surBtn.onclick = () => startGame('SURVIVAL'); surBtn.innerText = 'SURVIVAL';
         const epiBtn = document.createElement('button'); epiBtn.className = 'arcade-btn'; epiBtn.onclick = startEpilogueMenu; epiBtn.innerText = 'EPILOGUE';
 
-        const endWrap = document.createElement('div'); endWrap.style.display = 'flex'; endWrap.style.margin = '8px'; endWrap.style.width = '80%'; endWrap.style.maxWidth = '350px'; endWrap.style.justifyContent = 'center';
+        // FIXED: Matched exact width sizing for Endless Wrap button container
+        const endWrap = document.createElement('div'); endWrap.style.display = 'flex'; endWrap.style.margin = '6px'; endWrap.style.width = '85%'; endWrap.style.maxWidth = '340px'; endWrap.style.justifyContent = 'center';
         const endBtn = document.createElement('button'); endBtn.className = 'arcade-btn'; endBtn.onclick = () => startGame('ENDLESS'); endBtn.innerText = 'ENDLESS MODE'; endBtn.style.margin = '0'; endBtn.style.flex = '1';
-        const gearBtn = document.createElement('button'); gearBtn.className = 'arcade-btn'; gearBtn.onclick = openEndlessSettings; gearBtn.innerText = '⚙'; gearBtn.style.margin = '0 0 0 8px'; gearBtn.style.width = '60px'; gearBtn.style.padding = '0';
+        const gearBtn = document.createElement('button'); gearBtn.className = 'arcade-btn'; gearBtn.onclick = openEndlessSettings; gearBtn.innerText = '⚙'; gearBtn.style.margin = '0 0 0 6px'; gearBtn.style.width = '60px'; gearBtn.style.padding = '0';
         endWrap.appendChild(endBtn); endWrap.appendChild(gearBtn);
 
         container.appendChild(document.createElement('button')).className='hidden'; 
@@ -644,7 +645,6 @@
                 this.player.isAttacking = false;
                 this.player.isSpinning = false;
                 
-                // FIXED: Snap joystick back to center dynamically when paused
                 if (isTouchDevice) {
                     let joyBase = document.getElementById('joystickBase');
                     let joyStick = document.getElementById('joystickStick');
@@ -786,7 +786,6 @@
                                 percentY = (touch.clientY / window.innerHeight) * 100;
                             }
 
-                            // FIXED: Mathematically clamp the HUD layout so it can't vanish off screen
                             percentX = Math.max(5, Math.min(95, percentX));
                             percentY = Math.max(5, Math.min(95, percentY));
 
@@ -907,6 +906,11 @@
             
             let hpPool = (actualType === 'brute') ? 120 : (actualType === 'spitter' ? 30 : 40);
             
+            // FIXED: Added daily health scaling to Survival Mode to combat late-game power creep
+            if (this.gameMode === 'SURVIVAL' && actualType !== 'warlord') {
+                hpPool += Math.floor(this.dayCount * (actualType === 'brute' ? 4 : 1.5));
+            }
+            
             if (actualType === 'warlord') hpPool = (this.dayCount >= 21 && this.gameMode === 'SURVIVAL') ? 4000 : 2000;
 
             if (this.gameMode === 'ENDLESS') {
@@ -977,7 +981,10 @@
                     if (this.dummy.hits >= this.dummy.hitsNeeded) {
                         this.dummy.hits = 0; this.dummy.level++; this.dummy.hitsNeeded = Math.floor(this.dummy.hitsNeeded * 1.5); 
                         this.player.maxStamina += 15; this.player.stamina = this.player.maxStamina;
-                        this.player.dmg += 5;
+                        
+                        // FIXED: Re-balanced Training (Diminishing returns, +2 damage)
+                        this.player.dmg += 2;
+                        
                         this.spawnParticles(originX+20, this.player.y+20, '#ffcc00', 30); this.spawnText(originX+20, this.player.y-20, "STAMINA & DMG UP!", "#ffcc00"); this.shake = 10; sfx.sfxLevelUp();
                         if (this.state === 'TUTORIAL' && this.tutPhase === 8) { this.tutPhase = 9; this.tutTimer = 60; sfx.sfxLore(); }
                     }
@@ -998,7 +1005,9 @@
                                 ez.speed += 1.0;
                                 ez.isChasing = true;
                                 this.spawnParticles(ez.x+20, ez.y+20, '#ff0000', 10);
-                                this.spawnText(ez.x+20, ez.y-10, "THIEF!", "#ff0000");
+                                
+                                // FIXED: Immersive Aggro Text
+                                this.spawnText(ez.x+20, ez.y-10, "!", "#ff0000");
                                 sfx.sfxWarlordRoar();
                             }
                         });
