@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Last Dojo - V1.1.1</title>
+    <title>Last Dojo - V1.1.2</title>
     <style>
         html, body { 
             margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; 
@@ -737,12 +737,11 @@
         rectIntersect(x1, y1, w1, h1, x2, y2, w2, h2) { return x1 < x2 + w2 && x1 + w1 > x2 && y1 < y2 + h2 && y1 + h1 > y2; }
 
         hasInfiniteStamina() {
-            if (this.state === 'TUTORIAL' && this.isSiege) return true;
             if (this.gameMode === 'ENDLESS') {
                 if (this.isSiege) return endlessConfig.infStamBM;
                 return endlessConfig.infStamReg;
             }
-            return this.isSiege; 
+            return false; 
         }
 
         spawnBox() {
@@ -790,7 +789,7 @@
             this.enemies.push({ 
                 x: spawnX, y: spawnY, 
                 hp: hpPool, maxHp: hpPool, speed: moveSpeed, hitTimer: 0, biteTimer: 0, shootTimer: 60, type: actualType, burning: false, isMoving: true, facingRight: initialFacingRight, 
-                anchorX: anchorX, anchorY: anchorY, patrolDir: 1, w: size, h: size, aggroTarget: null, aggroTimer: 0,
+                anchorX: anchorX, anchorY: anchorY, patrolDir: 1, w: size, h: size, aggroTarget: null, aggroTimer: 0, isChasing: false,
                 dojoOffsetX: (Math.random() - 0.5) * 60, dojoOffsetY: (Math.random() - 0.5) * 30,
                 spawnTimer: (actualType === 'warlord' ? 120 : 0), specialTimer: (actualType === 'warlord' ? 180 : 0), isCasting: 0
             });
@@ -853,6 +852,17 @@
                         this.loot.push({ x: box.x, y: box.y, type: 'food' }); 
                         if(this.state === 'TUTORIAL') this.spawnText(box.x+20, box.y-15, "MEAT DROPPED!", "#ffcc00");
                         this.shake = Math.max(this.shake, 4); 
+                        
+                        this.enemies.forEach(ez => {
+                            if (ez.type === 'straggler' && Math.hypot(ez.x - box.x, ez.y - box.y) < 200) {
+                                ez.type = 'night';
+                                ez.speed += 1.0;
+                                ez.isChasing = true;
+                                this.spawnParticles(ez.x+20, ez.y+20, '#ff0000', 10);
+                                this.spawnText(ez.x+20, ez.y-10, "THIEF!", "#ff0000");
+                                sfx.sfxWarlordRoar();
+                            }
+                        });
                     }
                 }
             });
@@ -887,6 +897,12 @@
                             this.shake = 30; sfx.sfxExplode(); this.spawnParticles(z.x+40, z.y+40, '#d32f2f', 100); 
                             if (this.gameMode === 'SURVIVAL' && this.dayCount === 21 && this.isSiege && this.state === 'PLAYING') {
                                 this.triggerSunrise();
+                            } else if (this.gameMode === 'ENDLESS') {
+                                for(let i=0; i<5; i++) {
+                                    this.loot.push({ x: z.x + (Math.random()*60-30), y: z.y + (Math.random()*60-30), type: 'food' });
+                                    this.loot.push({ x: z.x + (Math.random()*60-30), y: z.y + (Math.random()*60-30), type: 'bandage' });
+                                }
+                                this.spawnText(z.x+40, z.y, "BOSS DEFEATED!", "#ffcc00");
                             }
                         } else {
                             this.launchCorpse(z, direction); 
@@ -1071,10 +1087,12 @@
                     let dx = pFeetX - dp.x;
                     let dy = pFeetY - dp.y;
                     if (((dx*dx)/(25*25) + (dy*dy)/(12*12)) <= 1) {
-                        let pDmg = 1.5;
+                        let pDmg = 10;
                         if (this.gameMode === 'ENDLESS' && endlessConfig.ohk) pDmg = 9999;
                         this.player.hp = Math.max(0, this.player.hp - pDmg); 
                         this.shake = Math.max(this.shake, 2);
+                        this.player.iFrames = 15;
+                        sfx.sfxHit();
                     }
                 }
             });
@@ -1278,7 +1296,9 @@
                 if (this.player.isAttacking && this.player.isSpinning && !p.reflected) {
                     if (Math.hypot((this.player.x + 20) - p.x, (this.player.y + 20) - p.y) < 70) {
                         p.vx *= -1.5; p.vy *= -1.5; p.reflected = true; p.life = 250;
-                        this.spawnParticles(p.x, p.y, '#00ffff', 10); this.spawnText(p.x, p.y-10, "PARRY!", "#00ffff"); this.shake = Math.max(this.shake, 5); this.hitStop = 3; sfx.sfxParry();
+                        this.spawnParticles(p.x, p.y, '#00ffff', 10); this.spawnText(p.x, p.y-10, "PARRY!", "#00ffff"); 
+                        this.shake = Math.max(this.shake, 5); 
+                        if (this.hitStop <= 0) { this.hitStop = 3; sfx.sfxParry(); }
                     }
                 }
                 let pHurtbox = { x: this.player.x + 10, y: this.player.y + 5, w: 20, h: 30 };
@@ -1403,7 +1423,6 @@
                             this.spawnText(z.x + 25, z.y - 20, "YEET!", "#ffcc00"); this.shake = Math.max(this.shake, 15); z.aggroTarget = null;
                         }
                     } else if (z.aggroTarget && z.aggroTarget.type === 'spitter' && z.type !== 'warlord') {
-                        // NORMAL ZOMBIE SPITTER BITE FIX
                         if (distToTarget < 40 && z.biteTimer <= 0) {
                             z.biteTimer = 60;
                             z.aggroTarget.hp -= 10;
@@ -1435,7 +1454,12 @@
                     } 
                     else if (z.type === 'straggler' && !z.aggroTarget && !isBloodMoonDrone) {
                         let distToBox = Math.hypot(z.anchorX - z.x, z.anchorY - z.y);
-                        if (distToTarget > 150 || distToBox > 250) {
+                        if (z.isChasing === undefined) z.isChasing = false;
+                        
+                        if (z.isChasing && (distToTarget > 200 || distToBox > 300)) z.isChasing = false;
+                        if (!z.isChasing && (distToTarget < 140 && distToBox < 250)) z.isChasing = true;
+
+                        if (!z.isChasing) {
                             z.x += (z.speed * 0.5) * z.patrolDir;
                             if (z.x > z.anchorX + 40) z.patrolDir = -1; if (z.x < z.anchorX - 40) z.patrolDir = 1;
                             if (z.y < z.anchorY) z.y += 0.5; if (z.y > z.anchorY) z.y -= 0.5; z.facingRight = z.patrolDir > 0;
@@ -1476,6 +1500,8 @@
                 }
             });
 
+            this.enemies = this.enemies.filter(z => z.hp > 0 || (z.type === 'warlord' && this.state === 'SUNRISE'));
+
             if (this.player.hp < oldHp) this.damageFlash = 30;
 
             this.corpses.forEach(c => { c.x += c.vx; c.y += c.vy; c.vy += 0.5; c.rot += c.spin; if (c.y > canvas.height - 40) { c.y = canvas.height - 40; c.vy *= -0.4; c.vx *= 0.5; c.spin *= 0.5; } c.life--; });
@@ -1484,7 +1510,7 @@
             this.floatTexts.forEach(t => { t.y -= 1; t.life--; });
 
             this.projectiles = this.projectiles.filter(p => p.life > 0); this.boxes = this.boxes.filter(b => b.hp > 0); 
-            this.enemies = this.enemies.filter(z => z.hp > 0); this.corpses = this.corpses.filter(c => c.life > 0);
+            this.corpses = this.corpses.filter(c => c.life > 0);
             this.particles = this.particles.filter(p => p.life > 0); this.floatTexts = this.floatTexts.filter(t => t.life > 0);
 
             if ((this.player.hp <= 0 || this.dojo.hp <= 0) && ['PLAYING', 'SUNRISE', 'TUTORIAL'].includes(this.state)) {
@@ -1563,8 +1589,12 @@
 
             this.damagePools.forEach(dp => {
                 ctx.globalAlpha = Math.min(1, dp.life / 240); ctx.fillStyle = "#cddc39"; 
-                if (dp.life > 100000) { ctx.fillStyle = "#ff5500"; ctx.globalAlpha = 0.7 + Math.sin(this.frames*0.1)*0.2; } 
-                ctx.beginPath(); ctx.ellipse(dp.x, dp.y, 40, 20, 0, 0, Math.PI*2); ctx.fill();
+                let rx = 25; let ry = 12;
+                if (dp.life > 100000) { 
+                    ctx.fillStyle = "#ff5500"; ctx.globalAlpha = 0.7 + Math.sin(this.frames*0.1)*0.2; 
+                    rx = 40; ry = 20; 
+                } 
+                ctx.beginPath(); ctx.ellipse(dp.x, dp.y, rx, ry, 0, 0, Math.PI*2); ctx.fill();
             });
             ctx.globalAlpha = 1.0; 
 
