@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Last Dojo - V1.1 (Tactical Update)</title>
+    <title>Last Dojo - V1.1.1</title>
     <style>
         html, body { 
             margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; 
@@ -85,7 +85,7 @@
         .bind-btn { background: #222; border: 1px solid #d32f2f; color: #ffcc00; padding: 4px 10px; font-family: inherit; font-size: clamp(12px, 2.5vw, 16px); cursor: pointer; width: 100px; text-align: center;}
         .bind-btn.waiting { background: #d32f2f; color: #fff; animation: pulseAnim 1s infinite; }
 
-        /* Mobile Touch Controls UI */
+        /* Mobile Touch Controls UI - Cluster Layout */
         #touchUI {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 15;
         }
@@ -265,17 +265,6 @@
         if (k === 'escape') return 'ESC';
         return k.toUpperCase(); 
     }
-    
-    function updateControlsUI() {
-        if (isTouchDevice) {
-            document.getElementById('controlsBtn').classList.add('hidden'); 
-        } else {
-            ['up','left','down','right','punch','spin','sleep','eat','pause'].forEach(act => {
-                let btn = document.getElementById('bind_' + act);
-                if(btn) { btn.innerText = getDisplayKey(userKeys[act]); btn.classList.remove('waiting'); }
-            });
-        }
-    }
 
     function startBind(action) {
         if(bindingAction) document.getElementById('bind_' + bindingAction).classList.remove('waiting');
@@ -292,7 +281,10 @@
             userKeys[bindingAction] = k;
             localStorage.setItem('lastDojoKeys', JSON.stringify(userKeys));
             bindingAction = null;
-            updateControlsUI();
+            ['up','left','down','right','punch','spin','sleep','eat','pause'].forEach(act => {
+                let btn = document.getElementById('bind_' + act);
+                if(btn) { btn.innerText = getDisplayKey(userKeys[act]); btn.classList.remove('waiting'); }
+            });
         }
     });
 
@@ -354,7 +346,7 @@
         ['mainMenu', 'settingsMenu', 'pauseMenu', 'gameOverMenu', 'victoryMenu', 'controlsMenu', 'endlessSettingsMenu'].forEach(id => {
             document.getElementById(id).classList.add('hidden');
         });
-        bindingAction = null; updateControlsUI();
+        bindingAction = null; 
     }
 
     function renderMenuButtons() {
@@ -387,7 +379,12 @@
         container.appendChild(document.createElement('div')).style.height = "20px";
         const settingsBtn = document.createElement('button'); settingsBtn.className = 'arcade-btn'; settingsBtn.onclick = openSettings; settingsBtn.innerText = 'SETTINGS';
         container.appendChild(settingsBtn);
-        updateControlsUI();
+        
+        ['up','left','down','right','punch','spin','sleep','eat','pause'].forEach(act => {
+            let btn = document.getElementById('bind_' + act);
+            if(btn) { btn.innerText = getDisplayKey(userKeys[act]); btn.classList.remove('waiting'); }
+        });
+        if (isTouchDevice) { document.getElementById('controlsBtn').classList.add('hidden'); }
     }
     renderMenuButtons();
 
@@ -397,7 +394,7 @@
         if (gameEngine && gameEngine.paused) document.getElementById('pauseMenu').classList.remove('hidden');
         else document.getElementById('mainMenu').classList.remove('hidden'); 
     }
-    function openControlsMenu() { hideAllMenus(); document.getElementById('controlsMenu').classList.remove('hidden'); updateControlsUI(); }
+    function openControlsMenu() { hideAllMenus(); document.getElementById('controlsMenu').classList.remove('hidden'); }
     function closeControlsMenu() { hideAllMenus(); document.getElementById('settingsMenu').classList.remove('hidden'); bindingAction = null; }
 
     function restartGame() { hideAllMenus(); if (gameEngine.state === 'VICTORY') gameEngine.startRun('SURVIVAL'); else if (gameEngine.gameMode === 'TUTORIAL') gameEngine.startTutorial(); else gameEngine.startRun(gameEngine.gameMode); }
@@ -486,7 +483,6 @@
         
         c.translate(ent.x + ent.w/2, ent.y + ent.h/2 + yOffset); 
         
-        // Eruption shaking
         if (ent.spawnTimer > 0 || ent.isCasting > 0) c.translate((Math.random()-0.5) * 8 * s, (Math.random()-0.5) * 8 * s);
         
         if (ent.isCasting > 0 && t === 'warlord') {
@@ -741,11 +737,12 @@
         rectIntersect(x1, y1, w1, h1, x2, y2, w2, h2) { return x1 < x2 + w2 && x1 + w1 > x2 && y1 < y2 + h2 && y1 + h1 > y2; }
 
         hasInfiniteStamina() {
+            if (this.state === 'TUTORIAL' && this.isSiege) return true;
             if (this.gameMode === 'ENDLESS') {
                 if (this.isSiege) return endlessConfig.infStamBM;
                 return endlessConfig.infStamReg;
             }
-            return false; 
+            return this.isSiege; 
         }
 
         spawnBox() {
@@ -822,12 +819,15 @@
             if (!this.hasInfiniteStamina()) this.player.stamina -= stamCost;
             if (this.state === 'TUTORIAL') { if (this.tutPhase === 9 && isSpin) { this.tutPhase = 10; this.tutTimer = 60; sfx.sfxLore(); } }
 
-            let hitbox = isSpin ? { x: this.player.x - 40, y: this.player.y - 20, w: 120, h: 80 } : { x: this.player.facingRight ? this.player.x + 30 : this.player.x - 30, y: this.player.y - 10, w: 40, h: 60 };
+            let bmMult = this.isSiege ? 2 : 1; 
+
+            let hitbox = isSpin ? { x: this.player.x - (40*bmMult), y: this.player.y - (20*bmMult), w: 120*bmMult, h: 80*bmMult } 
+                                : { x: this.player.facingRight ? this.player.x + 30 : this.player.x - (30*bmMult), y: this.player.y - 10, w: 40*bmMult, h: 60*bmMult };
             
             if (isSpin) { this.spawnParticles(this.player.x+20, this.player.y+20, '#fff', 20); this.shake = 8; }
             
-            let pDmg = isSpin ? 30 : this.player.dmg;
-            let pKb = isSpin ? 60 : 20;
+            let pDmg = (isSpin ? 30 : this.player.dmg) * (this.isSiege ? 3 : 1);
+            let pKb = (isSpin ? 60 : 20) * (this.isSiege ? 3 : 1);
             
             this.processHits(hitbox, pDmg, pKb); 
         }
@@ -1062,13 +1062,20 @@
             this.decals.forEach(d => d.life--); this.decals = this.decals.filter(d => d.life > 0);
             
             let oldHp = this.player.hp;
+            let pFeetX = this.player.x + 20;
+            let pFeetY = this.player.y + 35;
+            
             this.damagePools.forEach(dp => {
                 dp.life--;
-                if (this.player.iFrames <= 0 && Math.hypot((this.player.x+20) - dp.x, (this.player.y+20) - dp.y) < 40) {
-                    let pDmg = 1.5;
-                    if (this.gameMode === 'ENDLESS' && endlessConfig.ohk) pDmg = 9999;
-                    this.player.hp = Math.max(0, this.player.hp - pDmg); 
-                    this.shake = Math.max(this.shake, 2);
+                if (this.player.iFrames <= 0) {
+                    let dx = pFeetX - dp.x;
+                    let dy = pFeetY - dp.y;
+                    if (((dx*dx)/(25*25) + (dy*dy)/(12*12)) <= 1) {
+                        let pDmg = 1.5;
+                        if (this.gameMode === 'ENDLESS' && endlessConfig.ohk) pDmg = 9999;
+                        this.player.hp = Math.max(0, this.player.hp - pDmg); 
+                        this.shake = Math.max(this.shake, 2);
+                    }
                 }
             });
             this.damagePools = this.damagePools.filter(dp => dp.life > 0);
@@ -1233,7 +1240,6 @@
                 this.player.stamina += regenRate;
             }
 
-            // SLEEP MEAT ECONOMY
             if (this.keys.sleep && this.eReady && this.isDay && Math.abs(this.player.x - this.dojo.x) < 60 && Math.abs(this.player.y - this.dojo.y) < 60 && this.state !== 'TUTORIAL') {
                 if (this.food > 0) {
                     this.food--;
@@ -1266,8 +1272,6 @@
             });
 
             if (this.player.isAttacking) { this.player.attackTimer--; if (this.player.attackTimer <= 0) { this.player.isAttacking = false; this.player.isSpinning = false; } }
-
-            let curHp = this.player.hp;
 
             this.projectiles.forEach((p, index) => {
                 p.x += p.vx; p.y += p.vy; p.life--; let exploded = false;
@@ -1318,7 +1322,6 @@
 
             this.enemies.forEach(z => {
                 
-                // WARLORD ERUPTION LOGIC
                 if (z.isCasting > 0) {
                     z.isCasting--;
                     if (z.isCasting === 1 && z.type === 'warlord') {
@@ -1333,14 +1336,14 @@
                         this.spawnParticles(z.x+z.w/2, z.y+z.h, '#d32f2f', 40);
                         this.spawnText(z.x+z.w/2, z.y-10, "ERUPTION!", "#d32f2f");
                     }
-                    return; // Stunned while casting
+                    return; 
                 }
 
                 if (z.type === 'warlord' && z.specialTimer > 0 && this.state === 'PLAYING') {
                     z.specialTimer--;
                     if (z.specialTimer <= 0) {
-                        z.isCasting = 60; // 1 second cast time
-                        z.specialTimer = 300; // 5 seconds between attacks
+                        z.isCasting = 60; 
+                        z.specialTimer = 300; 
                     }
                 }
 
@@ -1374,7 +1377,6 @@
                 }
                 if (z.hp <= 0) return;
 
-                // SWARM ACCELERATION (Anti-Kite)
                 if (!z.burning && z.hp > 0 && z.type !== 'warlord' && this.state === 'PLAYING') {
                     z.speed = Math.min(z.speed + 0.001, 4.5);
                 }
@@ -1383,7 +1385,6 @@
                 else {
                     let isBloodMoonDrone = (this.isSiege && z.type !== 'spitter' && z.type !== 'warlord');
                     
-                    // AGGRO LOGIC
                     if (z.aggroTimer > 0) {
                         z.aggroTimer--;
                         isBloodMoonDrone = false; 
@@ -1400,6 +1401,21 @@
                             z.biteTimer = 60; z.aggroTarget.hp = 0; z.aggroTarget.handledDeath = true; this.hitStop = 4; sfx.sfxYeet();
                             this.launchCorpse(z.aggroTarget, z.facingRight ? 1 : -1, true); 
                             this.spawnText(z.x + 25, z.y - 20, "YEET!", "#ffcc00"); this.shake = Math.max(this.shake, 15); z.aggroTarget = null;
+                        }
+                    } else if (z.aggroTarget && z.aggroTarget.type === 'spitter' && z.type !== 'warlord') {
+                        // NORMAL ZOMBIE SPITTER BITE FIX
+                        if (distToTarget < 40 && z.biteTimer <= 0) {
+                            z.biteTimer = 60;
+                            z.aggroTarget.hp -= 10;
+                            this.spawnParticles(z.aggroTarget.x + 20, z.aggroTarget.y + 20, '#cddc39', 8);
+                            this.spawnText(z.aggroTarget.x + 20, z.aggroTarget.y, "-10", "#fff");
+                            sfx.sfxHit();
+                            if (z.aggroTarget.hp <= 0 && !z.aggroTarget.handledDeath) {
+                                z.aggroTarget.handledDeath = true;
+                                this.launchCorpse(z.aggroTarget, z.facingRight ? 1 : -1); 
+                                this.addDecal(z.aggroTarget.x + z.aggroTarget.w/2, z.aggroTarget.y + z.aggroTarget.h, 'rgba(150, 200, 0, 0.4)', 1.0);
+                                z.aggroTarget = null;
+                            }
                         }
                     }
 
@@ -1534,7 +1550,6 @@
 
             ctx.fillStyle = "rgba(0, 0, 0, 0.15)"; ctx.beginPath(); ctx.ellipse(this.dojo.x + 30, this.dojo.y + 25, 80, 40, 0, 0, Math.PI*2); ctx.fill(); 
 
-            // DOJO AURA DRAWING
             if (this.isSiege && this.dojo.hp > 0 && ['PLAYING', 'TUTORIAL'].includes(this.state)) {
                 ctx.save();
                 ctx.globalAlpha = 0.15 + Math.sin(this.frames * 0.1) * 0.05;
@@ -1583,7 +1598,6 @@
                 drawCharacter(ctx, z, this.frames, this.gameMode); 
                 if (z.hitTimer > 0) { ctx.globalCompositeOperation = 'source-atop'; ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.fillRect(z.x, z.y, z.w, z.h); ctx.globalCompositeOperation = 'source-over'; } 
                 
-                // Aggro Indicator
                 if (z.aggroTimer > 0 && z.hp > 0 && !z.burning) {
                     ctx.fillStyle = '#ff0000'; ctx.font = "bold 12px Courier"; ctx.fillText("!", z.x + z.w/2, z.y - 5);
                 }
@@ -1624,7 +1638,6 @@
             ctx.restore(); 
             this.drawLighting();
 
-            // CINEMATIC DAMAGE VIGNETTE
             if (this.damageFlash > 0) {
                 let flashGrad = ctx.createRadialGradient(canvas.width/2, canvas.height/2, canvas.height/3, canvas.width/2, canvas.height/2, canvas.width/1.2);
                 flashGrad.addColorStop(0, 'rgba(255, 0, 0, 0)');
@@ -1637,7 +1650,6 @@
                 ctx.fillStyle = "rgba(0, 0, 0, 0.6)"; ctx.fillRect(0, 0, canvas.width, canvas.height); 
             }
 
-            // CINEMATIC LORE OVERLAYS
             if (this.state === 'TUTORIAL') {
                 if (this.tutPhase <= 4) {
                     ctx.fillStyle = "rgba(0,0,0,1)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
