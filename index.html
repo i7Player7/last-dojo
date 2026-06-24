@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Last Dojo - V1.2.1</title>
+    <title>Last Dojo - V1.3</title>
     <style>
         html, body { 
             margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; 
@@ -254,6 +254,8 @@
             <button class="arcade-btn" onclick="restartGame()">CONTINUE (SPACE)</button>
             <button class="arcade-btn" onclick="quitToMenu()">MAIN MENU (Q)</button>
         </div>
+        
+        <div class="controls" id="footerControls" style="bottom: 10px; pointer-events: none; z-index: 15; position: absolute;"></div>
     </div>
 
 <script>
@@ -281,9 +283,14 @@
     }
     
     function updateControlsUI() {
+        let footer = document.getElementById('footerControls');
         if (isTouchDevice) {
-            document.getElementById('controlsBtn').classList.add('hidden'); 
+            footer.classList.add('hidden'); 
         } else {
+            footer.innerHTML = `
+                <p>Move: <kbd>${getDisplayKey(userKeys.up)}</kbd><kbd>${getDisplayKey(userKeys.left)}</kbd><kbd>${getDisplayKey(userKeys.down)}</kbd><kbd>${getDisplayKey(userKeys.right)}</kbd> | Sleep: <kbd>${getDisplayKey(userKeys.sleep)}</kbd> | Pause: <kbd>${getDisplayKey(userKeys.pause)}</kbd> or <kbd>ESC</kbd></p>
+                <p>Punch: <kbd>Left Click</kbd> or <kbd>${getDisplayKey(userKeys.punch)}</kbd> | Spin: <kbd>Right Click</kbd> or <kbd>${getDisplayKey(userKeys.spin)}</kbd> | Eat: <kbd>${getDisplayKey(userKeys.eat)}</kbd></p>`;
+            
             ['up','left','down','right','punch','spin','sleep','eat','pause'].forEach(act => {
                 let btn = document.getElementById('bind_' + act);
                 if(btn) { btn.innerText = getDisplayKey(userKeys[act]); btn.classList.remove('waiting'); }
@@ -525,6 +532,13 @@
     const sprMoon = buildSprite(["...EEEE.","..EEENNN",".EEEN...",".EEN....",".EEN....",".EEEN...","..EEENNN","...EEEE."], 3);
     const sprBloodMoon = buildSprite(["...FFFF.","..FFFRRR",".FFFR...","..FFR....","..FFR....",".FFFR...","..FFFRRR","...FFFF."], 3);
 
+    (function injectFavicon() {
+        let link = document.createElement('link');
+        link.type = 'image/png'; link.rel = 'icon';
+        link.href = sprDojo.toDataURL();
+        document.head.appendChild(link);
+    })();
+
     function drawCharacter(c, ent, frames, gameMode) {
         let isP = ent.type === 'player'; let t = ent.type; let s = (t === 'brute') ? 1.4 : (t === 'warlord' ? 2.2 : 1.0); 
         
@@ -629,6 +643,17 @@
                 this.player.isMoving = false;
                 this.player.isAttacking = false;
                 this.player.isSpinning = false;
+                
+                // FIXED: Snap joystick back to center dynamically when paused
+                if (isTouchDevice) {
+                    let joyBase = document.getElementById('joystickBase');
+                    let joyStick = document.getElementById('joystickStick');
+                    if (joyBase && joyStick) {
+                        joyStick.style.transform = `translate(0px, 0px)`;
+                        joyBase.style.display = 'none';
+                    }
+                }
+
                 hideAllMenus();
                 document.getElementById('pauseMenu').classList.remove('hidden');
                 if (isTouchDevice) document.getElementById('touchUI').classList.add('hidden');
@@ -718,11 +743,8 @@
                 const updateJoy = (touch) => {
                     let dx = touch.clientX - joyOrigin.x; let dy = touch.clientY - joyOrigin.y;
                     
-                    // FIXED: Swap and transform input vector bounds if window is physically Portrait 
                     if (window.innerHeight > window.innerWidth) {
-                        let tmp = dx;
-                        dx = dy;
-                        dy = -tmp;
+                        let tmp = dx; dx = dy; dy = -tmp;
                     }
 
                     let dist = Math.hypot(dx, dy);
@@ -755,14 +777,21 @@
                             e.preventDefault();
                             let touch = e.touches[0];
                             
-                            // FIXED: Translate HUD drag vectors natively inside un-rotated browser metrics
+                            let percentX, percentY;
                             if (window.innerHeight > window.innerWidth) {
-                                btn.style.left = (touch.clientY / window.innerHeight * 100) + '%';
-                                btn.style.top = ((window.innerWidth - touch.clientX) / window.innerWidth * 100) + '%';
+                                percentX = (touch.clientY / window.innerHeight) * 100;
+                                percentY = ((window.innerWidth - touch.clientX) / window.innerWidth) * 100;
                             } else {
-                                btn.style.left = (touch.clientX / window.innerWidth * 100) + '%';
-                                btn.style.top = (touch.clientY / window.innerHeight * 100) + '%';
+                                percentX = (touch.clientX / window.innerWidth) * 100;
+                                percentY = (touch.clientY / window.innerHeight) * 100;
                             }
+
+                            // FIXED: Mathematically clamp the HUD layout so it can't vanish off screen
+                            percentX = Math.max(5, Math.min(95, percentX));
+                            percentY = Math.max(5, Math.min(95, percentY));
+
+                            btn.style.left = percentX + '%';
+                            btn.style.top = percentY + '%';
                             btn.style.right = 'auto';
                             btn.style.bottom = 'auto';
                         }
@@ -997,8 +1026,6 @@
                     if (this.gameMode === 'ENDLESS') actualKnockback *= endlessConfig.knockback;
 
                     z.x += direction * actualKnockback; z.x = Math.max(0, Math.min(canvas.width - z.w, z.x));
-                    
-                    // FIXED: Restrict vertical knockback vector bounds to protect canvas constraints
                     z.y = Math.max(110, Math.min(canvas.height - z.h, z.y));
 
                     this.spawnParticles(z.x+20, z.y+20, (z.type === 'spitter' ? '#cddc39' : '#d32f2f'), 8); this.spawnText(z.x+20, z.y, `-${damage}`, "#fff"); 
@@ -1289,7 +1316,7 @@
                             }
                         }
 
-                        this.enemies.forEach(z => { if (z !== bossInstance && z.type !== 'straggler') z.burning = true; });
+                        this.enemies.forEach(z => { if (z.type !== 'straggler') z.burning = true; });
                         let cratesToSpawn = this.gameMode === 'ENDLESS' ? endlessConfig.crates : 3;
                         for(let i=0; i<cratesToSpawn; i++) this.spawnBox(); 
                         this.loot = []; this.projectiles = []; this.corpses = []; 
@@ -1454,11 +1481,7 @@
                 }
             });
 
-            // FIXED: Scope isolation pointer optimization
-            let bossInstance = null;
-
             this.enemies.forEach(z => {
-                if (z.type === 'warlord') bossInstance = z;
                 
                 if (z.isCasting > 0) {
                     z.isCasting--;
