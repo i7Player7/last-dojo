@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Last Dojo - V1.0.1</title>
+    <title>Last Dojo - V1.1 (Aggression Update)</title>
     <style>
         html, body { 
             margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; 
@@ -75,7 +75,6 @@
         .settings-row input[type=range] { flex: 2; margin: 0 10px; cursor: pointer; accent-color: #ffcc00;}
         .settings-row input[type=checkbox] { transform: scale(1.5); margin-right: 10px; cursor: pointer; accent-color: #d32f2f;}
         
-        /* Fixed Input selection bug on mobile */
         .num-input { 
             flex: 0.8; width: 60px; background: #222; border: 1px solid #d32f2f; 
             color: #ffcc00; font-family: monospace; font-size: 16px; padding: 4px; text-align: center;
@@ -110,13 +109,11 @@
         }
         .touch-btn:active { background: rgba(211, 47, 47, 0.8); transform: scale(0.9); }
         
-        /* The Action Cluster Arc */
         #btnPunch { width: 90px; height: 90px; bottom: 30px; right: 30px; font-size: 20px;}
         #btnSpin  { width: 65px; height: 65px; bottom: 125px; right: 105px; font-size: 14px;}
         #btnEat   { width: 60px; height: 60px; bottom: 135px; right: 30px; font-size: 14px; background: rgba(255, 204, 0, 0.4); border-color: rgba(255, 204, 0, 0.8);}
         #btnSleep { width: 60px; height: 60px; bottom: 30px; right: 135px; font-size: 14px; background: rgba(68, 170, 68, 0.4); border-color: rgba(68, 170, 68, 0.8);}
         
-        /* Utility */
         #btnPause { width: 45px; height: 45px; top: 20px; left: 20px; font-size: 14px; background: rgba(255, 255, 255, 0.2); border-color: rgba(255, 255, 255, 0.5); border-radius: 8px;}
 
         /* Mobile Orientation Warning */
@@ -249,9 +246,6 @@
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
 
-    // ==========================================
-    // DEVICE DETECTION & FULLSCREEN LOGIC
-    // ==========================================
     const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
     
     function requestMobileOptimization() {
@@ -262,9 +256,6 @@
         }
     }
 
-    // ==========================================
-    // KEY BINDING SYSTEM
-    // ==========================================
     const defaultKeys = { up: 'w', left: 'a', down: 's', right: 'd', punch: ' ', spin: 'shift', sleep: 'e', eat: 'r', pause: 'p' };
     let userKeys = JSON.parse(localStorage.getItem('lastDojoKeys')) || { ...defaultKeys };
     let bindingAction = null;
@@ -305,13 +296,10 @@
         }
     });
 
-    // ==========================================
-    // ENDLESS MODE SETTINGS SYSTEM
-    // ==========================================
     const defaultEndless = { 
         maxZ: 25, zSpeed: 1.0, zHealth: 1.0, zDamage: 1.0, bHealth: 1.0, bSpeed: 1.0, pSpeed: 1.0, 
         infStamReg: false, infStamBM: true, knockback: 1.0, spinCd: 1.0, lifesteal: 0, stamDrain: 1.0, 
-        spawnRate: 1.0, explodeZ: false, bossFreq: 35, bossSize: 1.0, bossCap: 3, bmFreq: 7, 
+        spawnRate: 1.0, explodeZ: false, bossFreq: 21, bossSize: 1.0, bossCap: 3, bmFreq: 7, 
         phaseLen: 1.0, dojoRegen: false, dojoHp: 300, crates: 3, bandageDrop: 0.1, 
         ohk: false, pitchBlack: false, lavaMode: false 
     };
@@ -362,9 +350,6 @@
         hideAllMenus(); document.getElementById('mainMenu').classList.remove('hidden');
     }
 
-    // ==========================================
-    // MENU NAVIGATION
-    // ==========================================
     function hideAllMenus() {
         ['mainMenu', 'settingsMenu', 'pauseMenu', 'gameOverMenu', 'victoryMenu', 'controlsMenu', 'endlessSettingsMenu'].forEach(id => {
             document.getElementById(id).classList.add('hidden');
@@ -472,9 +457,6 @@
     const sprMoon = buildSprite(["...EEEE.","..EEENNN",".EEEN...",".EEN....",".EEN....",".EEEN...","..EEENNN","...EEEE."], 3);
     const sprBloodMoon = buildSprite(["...FFFF.","..FFFRRR",".FFFR...","..FFR....","..FFR....",".FFFR...","..FFFRRR","...FFFF."], 3);
 
-    // ==========================================
-    // DYNAMIC FAVICON INJECTION
-    // ==========================================
     (function injectFavicon() {
         let link = document.createElement('link');
         link.type = 'image/png'; link.rel = 'icon';
@@ -599,7 +581,7 @@
         resetEntities() {
             this.player = { 
                 x: 100, y: 260, w: 40, h: 40, size: 40, hp: 100, maxHp: 100, stamina: 100, maxStamina: 100, 
-                condition: 100, maxCondition: 100, speed: 4, facingRight: true, 
+                condition: 100, maxCondition: 100, speed: 4, facingRight: true, dmg: 20, 
                 isAttacking: false, isSpinning: false, isMoving: false, attackTimer: 0, 
                 attackCost: 20, specialCost: 50, type: 'player', iFrames: 0, mutationGlow: 0 
             };
@@ -783,7 +765,8 @@
             if (this.isSiege && actualType !== 'brute' && actualType !== 'spitter' && actualType !== 'warlord') moveSpeed = Math.min(moveSpeed + 0.2, 3.5); 
             
             let hpPool = (actualType === 'brute') ? 120 : (actualType === 'spitter' ? 30 : 40);
-            if (actualType === 'warlord') hpPool = (this.dayCount >= 35) ? 4000 : 2000;
+            
+            if (actualType === 'warlord') hpPool = (this.dayCount >= 21 && this.gameMode === 'SURVIVAL') ? 4000 : 2000;
 
             if (this.gameMode === 'ENDLESS') {
                 if (actualType === 'warlord') { hpPool = Math.floor(hpPool * endlessConfig.bHealth); moveSpeed *= endlessConfig.bSpeed; size *= endlessConfig.bossSize;}
@@ -833,9 +816,17 @@
             if (!this.hasInfiniteStamina()) this.player.stamina -= stamCost;
             if (this.state === 'TUTORIAL') { if (this.tutPhase === 9 && isSpin) { this.tutPhase = 10; this.tutTimer = 60; sfx.sfxLore(); } }
 
-            let hitbox = isSpin ? { x: this.player.x - 40, y: this.player.y - 20, w: 120, h: 80 } : { x: this.player.facingRight ? this.player.x + 30 : this.player.x - 30, y: this.player.y - 10, w: 40, h: 60 };
+            let bmMult = this.isSiege ? 2 : 1; 
+
+            let hitbox = isSpin ? { x: this.player.x - (40*bmMult), y: this.player.y - (20*bmMult), w: 120*bmMult, h: 80*bmMult } 
+                                : { x: this.player.facingRight ? this.player.x + 30 : this.player.x - (30*bmMult), y: this.player.y - 10, w: 40*bmMult, h: 60*bmMult };
+            
             if (isSpin) { this.spawnParticles(this.player.x+20, this.player.y+20, '#fff', 20); this.shake = 8; }
-            this.processHits(hitbox, isSpin ? 30 : 20, isSpin ? 60 : 20); 
+            
+            let pDmg = (isSpin ? 30 : this.player.dmg) * (this.isSiege ? 3 : 1);
+            let pKb = (isSpin ? 60 : 20) * (this.isSiege ? 3 : 1);
+            
+            this.processHits(hitbox, pDmg, pKb); 
         }
 
         processHits(hitbox, damage, knockbackDist, originX = this.player.x) {
@@ -843,8 +834,10 @@
                 if (this.rectIntersect(hitbox.x, hitbox.y, hitbox.w, hitbox.h, this.dummy.x, this.dummy.y, 40, 40)) {
                     this.dummy.hits++; this.spawnParticles(this.dummy.x+20, this.dummy.y+20, '#d2b48c', 5); this.shake = Math.max(this.shake, 2); sfx.sfxHit();
                     if (this.dummy.hits >= this.dummy.hitsNeeded) {
-                        this.dummy.hits = 0; this.dummy.level++; this.dummy.hitsNeeded = Math.floor(this.dummy.hitsNeeded * 1.5); this.player.maxStamina += 15; this.player.stamina = this.player.maxStamina;
-                        this.spawnParticles(originX+20, this.player.y+20, '#ffcc00', 30); this.spawnText(originX+20, this.player.y-20, "STAMINA UP!", "#ffcc00"); this.shake = 10; sfx.sfxLevelUp();
+                        this.dummy.hits = 0; this.dummy.level++; this.dummy.hitsNeeded = Math.floor(this.dummy.hitsNeeded * 1.5); 
+                        this.player.maxStamina += 15; this.player.stamina = this.player.maxStamina;
+                        this.player.dmg += 5;
+                        this.spawnParticles(originX+20, this.player.y+20, '#ffcc00', 30); this.spawnText(originX+20, this.player.y-20, "STAMINA & DMG UP!", "#ffcc00"); this.shake = 10; sfx.sfxLevelUp();
                         if (this.state === 'TUTORIAL' && this.tutPhase === 8) { this.tutPhase = 9; this.tutTimer = 60; sfx.sfxLore(); }
                     }
                 }
@@ -885,7 +878,7 @@
                         
                         if (z.type === 'warlord') { 
                             this.shake = 30; sfx.sfxExplode(); this.spawnParticles(z.x+40, z.y+40, '#d32f2f', 100); 
-                            if (this.gameMode === 'SURVIVAL' && this.dayCount === 35 && this.isSiege && this.state === 'PLAYING') {
+                            if (this.gameMode === 'SURVIVAL' && this.dayCount === 21 && this.isSiege && this.state === 'PLAYING') {
                                 this.triggerSunrise();
                             }
                         } else {
@@ -994,16 +987,13 @@
                 case 5: this.tutText = "You are the last Master. You alone keep the Dojo standing."; if (this.tutTimer <= 0) { this.tutPhase = 6; this.tutTimer = 180; } break;
                 case 6: this.tutText = "The dead burn in the sunlight. But the nights are long."; if (this.tutTimer <= 0) { this.tutPhase = 7; this.tutTimer = 30; } break;
                 case 7: this.tutText = isTouchDevice ? "Use the Virtual Joystick to move." : `Use ${kU}, ${kL}, ${kD}, ${kR} to move.`; if (this.tutTimer <= 0 && this.player.isMoving) { this.tutPhase = 8; this.tutTimer = 30; sfx.sfxLore(); } break;
-                
-                // UX FIX: Explicit dummy instruction
                 case 8: this.tutText = isTouchDevice ? "Punch the training dummy to increase Max Stamina! (Tap PUNCH)" : `Punch the training dummy to increase Max Stamina! (${kP} to Punch)`; break;
-                
                 case 9: this.tutText = isTouchDevice ? "When surrounded, the Hurricane creates space. (Tap SPIN)" : `When surrounded, the Hurricane creates space. (${kS} to Spin)`; break;
                 case 10: this.tutText = "Attacks drain Stamina (Blue). Without it, you are defenseless. Exhaust it."; if (this.player.stamina <= 30) { this.tutPhase = 11; this.tutTimer = 120; sfx.sfxLore(); this.player.condition = 10; } break;
                 case 11: this.tutText = "Notice how slow Stamina recovers? It depends on your Condition (Yellow)."; if (this.tutTimer <= 0) { if (this.boxes.length === 0) this.spawnBox(); this.tutPhase = 12; this.tutTimer = 60; sfx.sfxLore(); } break;
                 case 12: this.tutText = "You are starving. Break the crate to scavenge meat."; if (this.food > 0) { this.tutPhase = 13; this.tutTimer = 60; sfx.sfxLore(); } break;
                 case 13: this.tutText = isTouchDevice ? "Eat the meat to restore your Condition. (Tap EAT)" : `Eat the meat to restore your Condition. (Press ${kEat} to Eat)`; if (this.keys.eat && this.rReady) { this.food--; this.player.condition = 100; this.spawnText(this.player.x+20, this.player.y, "+FOOD", "#44aa44"); this.rReady = false; this.tutPhase = 14; this.tutTimer = 60; sfx.sfxLore(); this.player.hp = 500; } break;
-                case 14: this.tutText = isTouchDevice ? "Rest near the Dojo to heal HP (Red). (Tap REST)" : `Rest near the Dojo to heal HP (Red). (Press ${kE} near Dojo)`; if (this.keys.sleep && this.eReady && Math.abs(this.player.x - this.dojo.x) < 60 && Math.abs(this.player.y - this.dojo.y) < 60) { this.player.hp = 1000; this.sleepFade = 60; this.eReady = false; this.tutPhase = 15; this.tutTimer = 120; sfx.sfxLore(); } break;
+                case 14: this.tutText = isTouchDevice ? "Rest near the Dojo to heal HP. Costs 1 Meat. (Tap REST)" : `Rest near the Dojo to heal HP. Costs 1 Meat. (Press ${kE} near Dojo)`; if (this.keys.sleep && this.eReady && Math.abs(this.player.x - this.dojo.x) < 60 && Math.abs(this.player.y - this.dojo.y) < 60 && this.food > 0) { this.food--; this.player.hp = 1000; this.sleepFade = 60; this.eReady = false; this.tutPhase = 15; this.tutTimer = 120; sfx.sfxLore(); } break;
                 case 15: 
                     this.tutText = "Night falls. The dead hunt the living! Survive!"; 
                     this.isDay = false; this.isSiege = false; 
@@ -1101,7 +1091,7 @@
                 if (!this.isSiege) this.player.condition = Math.max(0, this.player.condition - 0.02);
                 
                 if (this.timeTimer <= 0) { 
-                    if (this.gameMode === 'SURVIVAL' && this.dayCount === 35 && !this.isDay) {
+                    if (this.gameMode === 'SURVIVAL' && this.dayCount === 21 && !this.isDay) {
                         this.triggerSunrise(); return;
                     }
 
@@ -1129,13 +1119,11 @@
                                 this.spawnText(this.player.x+20, this.player.y-20, "FULL HEAL", "#44aa44");
                             }
                             
-                            if (this.dayCount - 1 < 35 || this.gameMode === 'ENDLESS') {
+                            if (this.dayCount - 1 < 21 || this.gameMode === 'ENDLESS') {
                                 sfx.sfxFrustratedGroan();
                                 this.shake = 10;
                                 if (this.dayCount === 8) this.subAnnounceText = "The presence recedes, unsatisfied.";
                                 else if (this.dayCount === 15) this.subAnnounceText = "A hollow rage echoes from the depths...";
-                                else if (this.dayCount === 22) this.subAnnounceText = "The ground cracks in frustration...";
-                                else if (this.dayCount === 29) this.subAnnounceText = "It will not hide in the dark much longer...";
                             }
                         }
 
@@ -1159,7 +1147,7 @@
                         if (bmTrigger) { 
                             this.isSiege = true; this.dojo.hp = this.dojo.maxHp; this.announceText = "BLOOD MOON SIEGE"; 
                             
-                            if (this.dayCount === 35 && this.gameMode === 'SURVIVAL') {
+                            if (this.dayCount === 21 && this.gameMode === 'SURVIVAL') {
                                 this.subAnnounceText = "FINE. I WILL TEAR IT DOWN MYSELF.";
                                 this.spawnZombie(null, null, 'warlord'); 
                             } else if (this.gameMode === 'ENDLESS' && this.dayCount % endlessConfig.bossFreq === 0) {
@@ -1171,8 +1159,6 @@
                                 this.shake = 15;
                                 if (this.dayCount === 7) this.subAnnounceText = "A dark hunger stirs beneath the soil...";
                                 else if (this.dayCount === 14) this.subAnnounceText = "The earth trembles. Something tests the seal...";
-                                else if (this.dayCount === 21) this.subAnnounceText = "It grows furious with its mindless puppets...";
-                                else if (this.dayCount === 28) this.subAnnounceText = "The soil boils. Its patience is gone.";
                             }
                         } else {
                             this.announceText = "NIGHT " + this.dayCount;
@@ -1222,13 +1208,21 @@
             let regenRate = 0.1 + (this.player.condition / 100) * 1.5; 
             if (!this.player.isAttacking && this.player.stamina < this.player.maxStamina && !this.isSiege && !this.hasInfiniteStamina()) this.player.stamina += regenRate;
 
+            // SLEEP MEAT ECONOMY FIX
             if (this.keys.sleep && this.eReady && this.isDay && Math.abs(this.player.x - this.dojo.x) < 60 && Math.abs(this.player.y - this.dojo.y) < 60 && this.state !== 'TUTORIAL') {
-                let timeRemainingPct = this.timeTimer / this.phaseDur; 
-                let healAmount = Math.floor(this.player.maxHp * (0.1 + (timeRemainingPct * 0.4))); 
-                this.player.condition = this.player.maxCondition; 
-                this.player.hp = Math.min(this.player.maxHp, this.player.hp + healAmount);
-                this.spawnParticles(this.player.x+15, this.player.y+15, '#44aa44', 15); this.spawnText(this.player.x+20, this.player.y, `+${healAmount} HP`, "#44aa44");
-                this.sleepFade = 60; this.eReady = false; 
+                if (this.food > 0) {
+                    this.food--;
+                    let timeRemainingPct = this.timeTimer / this.phaseDur; 
+                    let healAmount = Math.floor(this.player.maxHp * (0.1 + (timeRemainingPct * 0.4))); 
+                    this.player.condition = this.player.maxCondition; 
+                    this.player.hp = Math.min(this.player.maxHp, this.player.hp + healAmount);
+                    this.spawnParticles(this.player.x+15, this.player.y+15, '#44aa44', 15); this.spawnText(this.player.x+20, this.player.y, `+${healAmount} HP`, "#44aa44");
+                    this.spawnText(this.player.x+20, this.player.y-20, "-1 MEAT", "#ffcc00");
+                    this.sleepFade = 60; this.eReady = false; 
+                } else {
+                    this.spawnText(this.player.x+20, this.player.y, "NEED MEAT!", "#d32f2f");
+                    this.eReady = false;
+                }
             }
 
             this.loot.forEach((item, index) => {
@@ -1311,7 +1305,7 @@
                     if (z.type === 'warlord' && this.state === 'SUNRISE') {
                         return; 
                     } else {
-                        z.hp -= (z.type === 'warlord' ? 0 : 3); 
+                        z.hp -= (z.type === 'warlord' ? 150 : 3); 
                         if (Math.random() < 0.2) this.spawnParticles(z.x+20, z.y+20, '#ff9900', 1); 
                     }
                     
@@ -1327,6 +1321,12 @@
                     return;
                 }
                 if (z.hp <= 0) return;
+                
+                // ANTI-KITE SWARM ACCELERATION
+                if (!z.burning && z.hp > 0 && z.type !== 'warlord' && this.state === 'PLAYING') {
+                    z.speed = Math.min(z.speed + 0.001, 4.5);
+                }
+
                 if (z.biteTimer > 0) z.biteTimer--; if (z.hitTimer > 0) z.hitTimer--;
                 else {
                     let isBloodMoonDrone = (this.isSiege && z.type !== 'spitter' && z.type !== 'warlord');
@@ -1591,7 +1591,6 @@
                 ctx.font = "bold 60px Courier"; ctx.textAlign = "center"; 
                 ctx.fillText(this.announceText, canvas.width/2, canvas.height/4); 
                 
-                // SUBTITLE LORE
                 if (this.subAnnounceText) {
                     ctx.fillStyle = `rgba(211, 47, 47, ${alpha})`; 
                     ctx.font = "bold 24px Courier"; 
