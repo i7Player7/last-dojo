@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Last Dojo - V1.1 (Aggression Update)</title>
+    <title>Last Dojo - V1.1 (Tactical Update)</title>
     <style>
         html, body { 
             margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; 
@@ -85,7 +85,7 @@
         .bind-btn { background: #222; border: 1px solid #d32f2f; color: #ffcc00; padding: 4px 10px; font-family: inherit; font-size: clamp(12px, 2.5vw, 16px); cursor: pointer; width: 100px; text-align: center;}
         .bind-btn.waiting { background: #d32f2f; color: #fff; animation: pulseAnim 1s infinite; }
 
-        /* Mobile Touch Controls UI - Cluster Layout */
+        /* Mobile Touch Controls UI */
         #touchUI {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 15;
         }
@@ -469,7 +469,7 @@
         
         if (gameMode === 'ENDLESS' && t === 'warlord') s *= endlessConfig.bossSize;
 
-        let walk = ent.dead || ent.spawnTimer > 0 ? 0 : (ent.isMoving ? Math.sin(frames * 0.3) : 0);
+        let walk = ent.dead || ent.spawnTimer > 0 || ent.isCasting > 0 ? 0 : (ent.isMoving ? Math.sin(frames * 0.3) : 0);
         let punchProgress = ent.dead || ent.spawnTimer > 0 ? 0 : (ent.isAttacking && !ent.isSpinning ? (15 - ent.attackTimer)/15 : 0); 
         
         let ext = 0; 
@@ -486,7 +486,14 @@
         
         c.translate(ent.x + ent.w/2, ent.y + ent.h/2 + yOffset); 
         
-        if (ent.spawnTimer > 0) c.translate(Math.sin(frames * 0.8) * 3 * s, 0);
+        // Eruption shaking
+        if (ent.spawnTimer > 0 || ent.isCasting > 0) c.translate((Math.random()-0.5) * 8 * s, (Math.random()-0.5) * 8 * s);
+        
+        if (ent.isCasting > 0 && t === 'warlord') {
+            c.fillStyle = 'rgba(211, 47, 47, 0.4)';
+            c.beginPath(); c.arc(0, 0, 30*s + Math.sin(frames)*5, 0, Math.PI*2); c.fill();
+        }
+
         if (ent.dead) c.rotate(ent.rot); else if (ent.isSpinning) c.rotate(frames * 0.5); else if (!ent.facingRight) c.scale(-1, 1);
         
         let hc, bc, lc, lg;
@@ -734,12 +741,11 @@
         rectIntersect(x1, y1, w1, h1, x2, y2, w2, h2) { return x1 < x2 + w2 && x1 + w1 > x2 && y1 < y2 + h2 && y1 + h1 > y2; }
 
         hasInfiniteStamina() {
-            if (this.state === 'TUTORIAL' && this.isSiege) return true;
             if (this.gameMode === 'ENDLESS') {
                 if (this.isSiege) return endlessConfig.infStamBM;
                 return endlessConfig.infStamReg;
             }
-            return this.isSiege; 
+            return false; 
         }
 
         spawnBox() {
@@ -787,9 +793,9 @@
             this.enemies.push({ 
                 x: spawnX, y: spawnY, 
                 hp: hpPool, maxHp: hpPool, speed: moveSpeed, hitTimer: 0, biteTimer: 0, shootTimer: 60, type: actualType, burning: false, isMoving: true, facingRight: initialFacingRight, 
-                anchorX: anchorX, anchorY: anchorY, patrolDir: 1, w: size, h: size, aggroTarget: null,
+                anchorX: anchorX, anchorY: anchorY, patrolDir: 1, w: size, h: size, aggroTarget: null, aggroTimer: 0,
                 dojoOffsetX: (Math.random() - 0.5) * 60, dojoOffsetY: (Math.random() - 0.5) * 30,
-                spawnTimer: (actualType === 'warlord' ? 120 : 0) 
+                spawnTimer: (actualType === 'warlord' ? 120 : 0), specialTimer: (actualType === 'warlord' ? 180 : 0), isCasting: 0
             });
         }
 
@@ -816,15 +822,12 @@
             if (!this.hasInfiniteStamina()) this.player.stamina -= stamCost;
             if (this.state === 'TUTORIAL') { if (this.tutPhase === 9 && isSpin) { this.tutPhase = 10; this.tutTimer = 60; sfx.sfxLore(); } }
 
-            let bmMult = this.isSiege ? 2 : 1; 
-
-            let hitbox = isSpin ? { x: this.player.x - (40*bmMult), y: this.player.y - (20*bmMult), w: 120*bmMult, h: 80*bmMult } 
-                                : { x: this.player.facingRight ? this.player.x + 30 : this.player.x - (30*bmMult), y: this.player.y - 10, w: 40*bmMult, h: 60*bmMult };
+            let hitbox = isSpin ? { x: this.player.x - 40, y: this.player.y - 20, w: 120, h: 80 } : { x: this.player.facingRight ? this.player.x + 30 : this.player.x - 30, y: this.player.y - 10, w: 40, h: 60 };
             
             if (isSpin) { this.spawnParticles(this.player.x+20, this.player.y+20, '#fff', 20); this.shake = 8; }
             
-            let pDmg = (isSpin ? 30 : this.player.dmg) * (this.isSiege ? 3 : 1);
-            let pKb = (isSpin ? 60 : 20) * (this.isSiege ? 3 : 1);
+            let pDmg = isSpin ? 30 : this.player.dmg;
+            let pKb = isSpin ? 60 : 20;
             
             this.processHits(hitbox, pDmg, pKb); 
         }
@@ -855,11 +858,15 @@
             });
 
             this.enemies.forEach(z => {
-                if (z.spawnTimer > 0) return; 
+                if (z.spawnTimer > 0 || z.isCasting > 0) return; 
                 
                 if (this.rectIntersect(hitbox.x, hitbox.y, hitbox.w, hitbox.h, z.x, z.y, z.w, z.h)) {
                     z.hp -= damage; z.hitTimer = 10; sfx.sfxHit();
                     
+                    if (this.isSiege && z.type !== 'spitter' && z.type !== 'warlord') {
+                        z.aggroTimer = 480; 
+                    }
+
                     if (this.gameMode === 'ENDLESS' && endlessConfig.lifesteal > 0 && z.hp > 0) {
                         this.player.hp = Math.min(this.player.maxHp, this.player.hp + endlessConfig.lifesteal);
                     }
@@ -992,7 +999,16 @@
                 case 10: this.tutText = "Attacks drain Stamina (Blue). Without it, you are defenseless. Exhaust it."; if (this.player.stamina <= 30) { this.tutPhase = 11; this.tutTimer = 120; sfx.sfxLore(); this.player.condition = 10; } break;
                 case 11: this.tutText = "Notice how slow Stamina recovers? It depends on your Condition (Yellow)."; if (this.tutTimer <= 0) { if (this.boxes.length === 0) this.spawnBox(); this.tutPhase = 12; this.tutTimer = 60; sfx.sfxLore(); } break;
                 case 12: this.tutText = "You are starving. Break the crate to scavenge meat."; if (this.food > 0) { this.tutPhase = 13; this.tutTimer = 60; sfx.sfxLore(); } break;
-                case 13: this.tutText = isTouchDevice ? "Eat the meat to restore your Condition. (Tap EAT)" : `Eat the meat to restore your Condition. (Press ${kEat} to Eat)`; if (this.keys.eat && this.rReady) { this.food--; this.player.condition = 100; this.spawnText(this.player.x+20, this.player.y, "+FOOD", "#44aa44"); this.rReady = false; this.tutPhase = 14; this.tutTimer = 60; sfx.sfxLore(); this.player.hp = 500; } break;
+                case 13: 
+                    this.tutText = isTouchDevice ? "Eat the meat to restore your Condition. (Tap EAT)" : `Eat the meat to restore your Condition. (Press ${kEat} to Eat)`; 
+                    if (this.keys.eat && this.rReady) { 
+                        this.food--; this.player.condition = 100; 
+                        this.spawnText(this.player.x+20, this.player.y, "+FOOD", "#44aa44"); 
+                        this.rReady = false; this.tutPhase = 14; this.tutTimer = 60; sfx.sfxLore(); this.player.hp = 500; 
+                        this.food++; 
+                        this.spawnText(this.player.x+20, this.player.y-20, "+1 BONUS MEAT", "#ffcc00");
+                    } 
+                    break;
                 case 14: this.tutText = isTouchDevice ? "Rest near the Dojo to heal HP. Costs 1 Meat. (Tap REST)" : `Rest near the Dojo to heal HP. Costs 1 Meat. (Press ${kE} near Dojo)`; if (this.keys.sleep && this.eReady && Math.abs(this.player.x - this.dojo.x) < 60 && Math.abs(this.player.y - this.dojo.y) < 60 && this.food > 0) { this.food--; this.player.hp = 1000; this.sleepFade = 60; this.eReady = false; this.tutPhase = 15; this.tutTimer = 120; sfx.sfxLore(); } break;
                 case 15: 
                     this.tutText = "Night falls. The dead hunt the living! Survive!"; 
@@ -1002,7 +1018,7 @@
                     break;
                 case 16: this.tutText = "But every 7th night, a Blood Moon rises!"; if (this.tutTimer <= 0) { this.tutPhase = 17; this.tutTimer = 180; sfx.sfxLore(); } break;
                 case 17: 
-                    this.tutText = "They ignore you to break the seal! Defend the Dojo! (INFINITE STAMINA)"; 
+                    this.tutText = "They ignore you! Attack them to draw their aggro! (Dojo aura restores Stamina)"; 
                     this.isSiege = true;
                     if (this.tutTimer === 120) { this.spawnZombie(null, null, 'night'); this.spawnZombie(null, null, 'night'); } 
                     if (this.tutTimer <= 0 && this.enemies.length === 0) { 
@@ -1058,9 +1074,16 @@
             this.damagePools = this.damagePools.filter(dp => dp.life > 0);
             if (this.player.hp < oldHp) this.damageFlash = 30;
 
-            if (this.isSiege && ['PLAYING', 'SUNRISE', 'TUTORIAL'].includes(this.state)) {
-                this.player.stamina = this.player.maxStamina; this.player.condition = this.player.maxCondition;
-            } else if (this.hasInfiniteStamina()) {
+            let inDojoAura = false;
+            if (this.isSiege && this.dojo.hp > 0 && ['PLAYING', 'TUTORIAL'].includes(this.state)) {
+                let distToDojo = Math.hypot((this.player.x + 20) - (this.dojo.x + 30), (this.player.y + 20) - (this.dojo.y + 20));
+                if (distToDojo < 150) {
+                    inDojoAura = true;
+                    this.player.stamina = Math.min(this.player.maxStamina, this.player.stamina + 1.5);
+                }
+            }
+
+            if (this.hasInfiniteStamina()) {
                 this.player.stamina = this.player.maxStamina;
             }
 
@@ -1206,9 +1229,11 @@
             this.player.y = Math.max(110, Math.min(canvas.height - this.player.size, this.player.y)); 
 
             let regenRate = 0.1 + (this.player.condition / 100) * 1.5; 
-            if (!this.player.isAttacking && this.player.stamina < this.player.maxStamina && !this.isSiege && !this.hasInfiniteStamina()) this.player.stamina += regenRate;
+            if (!this.player.isAttacking && this.player.stamina < this.player.maxStamina && !this.isSiege && !inDojoAura && !this.hasInfiniteStamina()) {
+                this.player.stamina += regenRate;
+            }
 
-            // SLEEP MEAT ECONOMY FIX
+            // SLEEP MEAT ECONOMY
             if (this.keys.sleep && this.eReady && this.isDay && Math.abs(this.player.x - this.dojo.x) < 60 && Math.abs(this.player.y - this.dojo.y) < 60 && this.state !== 'TUTORIAL') {
                 if (this.food > 0) {
                     this.food--;
@@ -1276,7 +1301,7 @@
                     this.enemies.forEach(z => {
                         if (Math.hypot((z.x + z.w/2) - p.x, (z.y + z.h/2) - p.y) < 60) {
                             let dmg = p.reflected ? 60 : 20; z.hp -= dmg; this.spawnText(z.x + (z.w/2), z.y, `-${dmg}`, p.reflected ? "#00ffff" : "#cddc39");
-                            if (!p.reflected && p.owner && p.owner !== z && p.owner.hp > 0) { z.aggroTarget = p.owner; }
+                            if (!p.reflected && p.owner && p.owner !== z && p.owner.hp > 0) { z.aggroTarget = p.owner; z.aggroTimer = 480; }
                             if(z.hp <= 0 && !z.handledDeath) { 
                                 z.handledDeath = true; 
                                 this.launchCorpse(z, p.vx > 0 ? 1 : -1); 
@@ -1292,6 +1317,33 @@
             });
 
             this.enemies.forEach(z => {
+                
+                // WARLORD ERUPTION LOGIC
+                if (z.isCasting > 0) {
+                    z.isCasting--;
+                    if (z.isCasting === 1 && z.type === 'warlord') {
+                        this.shake = 20; sfx.sfxExplode();
+                        for(let i=0; i<3; i++) {
+                            this.damagePools.push({ 
+                                x: this.player.x + (Math.random()*100 - 50), 
+                                y: this.player.y + (Math.random()*100 - 50), 
+                                life: 300 
+                            });
+                        }
+                        this.spawnParticles(z.x+z.w/2, z.y+z.h, '#d32f2f', 40);
+                        this.spawnText(z.x+z.w/2, z.y-10, "ERUPTION!", "#d32f2f");
+                    }
+                    return; // Stunned while casting
+                }
+
+                if (z.type === 'warlord' && z.specialTimer > 0 && this.state === 'PLAYING') {
+                    z.specialTimer--;
+                    if (z.specialTimer <= 0) {
+                        z.isCasting = 60; // 1 second cast time
+                        z.specialTimer = 300; // 5 seconds between attacks
+                    }
+                }
+
                 if (z.spawnTimer > 0) { 
                     z.spawnTimer--; 
                     if (z.spawnTimer % 5 === 0) {
@@ -1305,7 +1357,7 @@
                     if (z.type === 'warlord' && this.state === 'SUNRISE') {
                         return; 
                     } else {
-                        z.hp -= (z.type === 'warlord' ? 150 : 3); 
+                        z.hp -= (z.type === 'warlord' ? 0 : 3); 
                         if (Math.random() < 0.2) this.spawnParticles(z.x+20, z.y+20, '#ff9900', 1); 
                     }
                     
@@ -1321,8 +1373,8 @@
                     return;
                 }
                 if (z.hp <= 0) return;
-                
-                // ANTI-KITE SWARM ACCELERATION
+
+                // SWARM ACCELERATION (Anti-Kite)
                 if (!z.burning && z.hp > 0 && z.type !== 'warlord' && this.state === 'PLAYING') {
                     z.speed = Math.min(z.speed + 0.001, 4.5);
                 }
@@ -1331,6 +1383,12 @@
                 else {
                     let isBloodMoonDrone = (this.isSiege && z.type !== 'spitter' && z.type !== 'warlord');
                     
+                    // AGGRO LOGIC
+                    if (z.aggroTimer > 0) {
+                        z.aggroTimer--;
+                        isBloodMoonDrone = false; 
+                    }
+
                     let targetX = isBloodMoonDrone ? this.dojo.x + 30 + z.dojoOffsetX : this.player.x; 
                     let targetY = isBloodMoonDrone ? this.dojo.y + 20 + z.dojoOffsetY : this.player.y;
                     
@@ -1351,7 +1409,7 @@
                             if (z.x < targetX) z.x += z.speed; if (z.x > targetX) z.x -= z.speed; if (z.y < targetY) z.y += z.speed; if (z.y > targetY) z.y -= z.speed;
                         } else {
                             if (z.shootTimer <= 0) {
-                                let aimY = this.isSiege ? targetY + 20 : targetY;
+                                let aimY = isBloodMoonDrone ? targetY + 20 : targetY;
                                 let angle = Math.atan2(aimY - (z.y + 20), targetX - (z.x + 20));
                                 this.projectiles.push({ x: z.x + 20, y: z.y + 20, vx: Math.cos(angle) * 4, vy: Math.sin(angle) * 4, life: 250, owner: z, reflected: false });
                                 z.shootTimer = 120; sfx.sfxSpit();
@@ -1359,7 +1417,7 @@
                         }
                         z.facingRight = targetX > z.x;
                     } 
-                    else if (z.type === 'straggler' && !z.aggroTarget) {
+                    else if (z.type === 'straggler' && !z.aggroTarget && !isBloodMoonDrone) {
                         let distToBox = Math.hypot(z.anchorX - z.x, z.anchorY - z.y);
                         if (distToTarget > 150 || distToBox > 250) {
                             z.x += (z.speed * 0.5) * z.patrolDir;
@@ -1476,6 +1534,15 @@
 
             ctx.fillStyle = "rgba(0, 0, 0, 0.15)"; ctx.beginPath(); ctx.ellipse(this.dojo.x + 30, this.dojo.y + 25, 80, 40, 0, 0, Math.PI*2); ctx.fill(); 
 
+            // DOJO AURA DRAWING
+            if (this.isSiege && this.dojo.hp > 0 && ['PLAYING', 'TUTORIAL'].includes(this.state)) {
+                ctx.save();
+                ctx.globalAlpha = 0.15 + Math.sin(this.frames * 0.1) * 0.05;
+                ctx.fillStyle = '#ffcc00';
+                ctx.beginPath(); ctx.ellipse(this.dojo.x + 30, this.dojo.y + 20, 150, 75, 0, 0, Math.PI*2); ctx.fill();
+                ctx.restore();
+            }
+
             this.decals.forEach(d => { ctx.globalAlpha = d.life / 300; ctx.fillStyle = d.col; ctx.beginPath(); ctx.ellipse(d.x, d.y, d.s, d.s * 0.5, 0, 0, Math.PI*2); ctx.fill(); });
             ctx.globalAlpha = 1.0; 
 
@@ -1516,6 +1583,11 @@
                 drawCharacter(ctx, z, this.frames, this.gameMode); 
                 if (z.hitTimer > 0) { ctx.globalCompositeOperation = 'source-atop'; ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.fillRect(z.x, z.y, z.w, z.h); ctx.globalCompositeOperation = 'source-over'; } 
                 
+                // Aggro Indicator
+                if (z.aggroTimer > 0 && z.hp > 0 && !z.burning) {
+                    ctx.fillStyle = '#ff0000'; ctx.font = "bold 12px Courier"; ctx.fillText("!", z.x + z.w/2, z.y - 5);
+                }
+
                 if (z.type === 'warlord' && z.hp > 0 && z.spawnTimer <= 0 && this.state !== 'SUNRISE') {
                     ctx.fillStyle = "#222"; ctx.fillRect(z.x, z.y - 10, z.w, 6); ctx.fillStyle = "#d32f2f"; ctx.fillRect(z.x, z.y - 10, (z.hp/z.maxHp)*z.w, 6); ctx.strokeStyle = "#000"; ctx.strokeRect(z.x, z.y - 10, z.w, 6);
                 }
