@@ -937,7 +937,6 @@ class Game {
                         this.camera.x = Math.max(0, Math.min(this.worldWidth - canvas.width, this.player.x - (canvas.width / 2)));
                     }
 
-                    // BUG FIX: Ensure Orbs are not deleted when forced out of the Forest at night!
                     this.loot = this.loot.filter(l => l.room === 'HUB' || l.type.startsWith('orb_'));
 
                     this.enemies.forEach(z => { if (z.type === 'straggler') z.type = 'night'; });
@@ -955,7 +954,6 @@ class Game {
                             for(let w=0; w<warlordCount; w++) this.spawnZombie(null, null, 'warlord');
                         } else {
                             sfx.sfxWarlordRoar(); this.shake = 15;
-                            // Alternating Alpha / Broodmother for Endless Mode
                             if (this.dayCount % 14 === 7) {
                                 this.subAnnounceText = "THE ALPHA AWAKENS."; 
                                 this.spawnZombie(null, null, 'alpha'); 
@@ -1472,7 +1470,6 @@ class Game {
                         this.shake = 30; sfx.sfxExplode(); 
                         for(let i=0; i<200; i++) this.createParticle(z.x+40, z.y+40, '#ff9900', this.currentRoom); 
                         
-                        // ENDLESS MODE: Warlord dropping loot on Burn Death
                         if (this.gameMode === 'ENDLESS') {
                             for(let i=0; i<5; i++) {
                                 this.dropLoot(z.x + (Math.random()*60-30), z.y + (Math.random()*60-30), 'food', this.currentRoom);
@@ -2132,23 +2129,13 @@ class Game {
         }
         this.decals.forEach(d => { if(d.room === this.currentRoom) d.draw(ctx); });
         this.damagePools.forEach(dp => { if(dp.room === this.currentRoom) dp.draw(ctx, this.frames); });
-        this.drawShadow(this.player.x, this.player.y, 40);
-        if(this.currentRoom === 'HUB') {
-            this.drawShadow(this.dummy.x, this.dummy.y, 40); 
-        }
         
-        // BOSS AURAS
+        this.drawShadow(this.player.x, this.player.y, 40);
+        
+        // BUG FIX: Separate shadow drawing from main entity loop to ensure all active entities render properly
         this.enemies.forEach(z => { 
             if(z.room === this.currentRoom && !z.burning && z.type !== 'fish') {
                 this.drawShadow(z.x, z.y, z.w, z.h); 
-                if (z.isAlpha || z.isBrood) {
-                    ctx.save();
-                    ctx.shadowBlur = 20; ctx.shadowColor = z.isAlpha ? '#ff1744' : '#aa00ff';
-                    z.draw(ctx, this.frames, this.gameMode, UI.endlessConfig.bossSize);
-                    ctx.restore();
-                } else {
-                    z.draw(ctx, this.frames, this.gameMode, UI.endlessConfig.bossSize);
-                }
             }
         });
 
@@ -2176,6 +2163,21 @@ class Game {
         });
 
         this.corpses.forEach(c => { if(c.room === this.currentRoom) c.draw(ctx, this.frames, this.gameMode, UI.endlessConfig.bossSize); });
+        
+        // BOSS AURAS AND ENEMY RENDERING
+        this.enemies.forEach(z => { 
+            if(z.room === this.currentRoom) {
+                if (z.isAlpha || z.isBrood) {
+                    ctx.save();
+                    ctx.shadowBlur = 20; ctx.shadowColor = z.isAlpha ? '#ff1744' : '#aa00ff';
+                    z.draw(ctx, this.frames, this.gameMode, UI.endlessConfig.bossSize);
+                    ctx.restore();
+                } else {
+                    z.draw(ctx, this.frames, this.gameMode, UI.endlessConfig.bossSize);
+                }
+            }
+        });
+
         this.projectiles.forEach(p => { if(p.room === this.currentRoom) p.draw(ctx); });
         
         if (['PLAYING', 'TUTORIAL', 'SUNRISE'].includes(this.state)) {
