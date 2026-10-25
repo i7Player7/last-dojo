@@ -2,8 +2,11 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>LAST DOJO V2.0</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Last Dojo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@600;700;800&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -11,117 +14,159 @@
     <div id="gameContainer">
         <canvas id="gameCanvas" width="1024" height="576"></canvas>
 
+        <!-- Touch controls -->
         <div id="touchUI" class="hidden">
             <div id="joystickZone"></div>
             <div id="joystickBase"><div id="joystickStick"></div></div>
-            <div id="btnPunch" class="touch-zone touch-btn">PUNCH</div>
-            <div id="btnSpin" class="touch-zone touch-btn">SPIN</div>
-            <div id="btnEat" class="touch-zone touch-btn">EAT</div>
-            <div id="btnSleep" class="touch-zone touch-btn">REST</div>
-            <div id="btnPause" class="touch-zone touch-btn" onclick="if(!Input.isEditingHUD) document.dispatchEvent(new Event('togglePause'))">||</div>
+            <div id="btnPunch" class="touch-btn btn-punch">PUNCH</div>
+            <div id="btnSpin" class="touch-btn">SPIN</div>
+            <div id="btnDash" class="touch-btn btn-dash">DASH</div>
+            <div id="btnAct" class="touch-btn btn-act">ACT</div>
+            <div id="btnEat" class="touch-btn btn-eat">EAT</div>
+            <div id="btnRush" class="touch-btn btn-rush">RUSH</div>
+            <div id="btnPause" class="touch-btn btn-pause">II</div>
         </div>
 
         <div id="hudEditOverlay" class="hidden">
-            <button class="arcade-btn" style="width: auto; max-width: 160px; margin: 0 4px;" onclick="saveMobileHUD()">SAVE HUD</button>
-            <button class="arcade-btn" style="width: auto; max-width: 160px; margin: 0 4px;" onclick="resetMobileHUD()">RESET DEFAULT</button>
-        </div>
-
-        <div id="mainMenu" class="menu-overlay">
-            <h1 class="menu-title">LAST DOJO V2</h1>
-            <p id="highScoreDisplay"></p>
-            <div id="dynamicMenuButtons" style="display: flex; flex-direction: column; align-items: center; width: 100%;"></div>
-        </div>
-
-        <div id="settingsMenu" class="menu-overlay hidden">
-            <h1 class="menu-title">SETTINGS</h1>
-            <button class="arcade-btn" id="audioBtn" onclick="toggleAudio()">AUDIO: ON</button>
-            <button class="arcade-btn" onclick="openControlsMenu()">EDIT CONTROLS</button>
-            <button class="arcade-btn" onclick="closeSettings()" style="margin-top: 20px;">BACK</button>
-        </div>
-
-        <div id="controlsMenu" class="menu-overlay hidden">
-            <h1 class="menu-title" style="font-size: clamp(24px, 4vw, 40px); margin-bottom: 10px;">KEYBINDS</h1>
-            <div class="settings-container">
-                <div class="settings-row"><label>Move Up</label><button class="bind-btn" id="bind_up" onclick="startBind('up')"></button></div>
-                <div class="settings-row"><label>Move Left</label><button class="bind-btn" id="bind_left" onclick="startBind('left')"></button></div>
-                <div class="settings-row"><label>Move Down</label><button class="bind-btn" id="bind_down" onclick="startBind('down')"></button></div>
-                <div class="settings-row"><label>Move Right</label><button class="bind-btn" id="bind_right" onclick="startBind('right')"></button></div>
-                <div class="settings-row"><label>Punch</label><button class="bind-btn" id="bind_punch" onclick="startBind('punch')"></button></div>
-                <div class="settings-row"><label>Spin Kick</label><button class="bind-btn" id="bind_spin" onclick="startBind('spin')"></button></div>
-                <div class="settings-row"><label>Sleep</label><button class="bind-btn" id="bind_sleep" onclick="startBind('sleep')"></button></div>
-                <div class="settings-row"><label>Eat</label><button class="bind-btn" id="bind_eat" onclick="startBind('eat')"></button></div>
-                <div class="settings-row"><label>Pause</label><button class="bind-btn" id="bind_pause" onclick="startBind('pause')"></button></div>
+            <p>Drag the buttons where your thumbs rest.</p>
+            <div>
+                <button class="arcade-btn compact primary" onclick="saveMobileHUD()">Save layout</button>
+                <button class="arcade-btn compact" onclick="resetMobileHUD()">Reset layout</button>
             </div>
-            <button class="arcade-btn" onclick="closeControlsMenu()">DONE</button>
         </div>
 
-        <div id="endlessSettingsMenu" class="menu-overlay hidden">
-            <h1 class="menu-title" style="font-size: clamp(24px, 4vw, 40px); margin-bottom: 10px;">ENDLESS OPTIONS</h1>
-            <div class="settings-container" style="color: #fff;">
-                <div class="settings-category">The World</div>
-                <div class="settings-row"><label>Blood Moon Freq.</label><input type="range" id="eo_bmFreq" min="1" max="14" step="1" oninput="updateEO('bmFreq', this.value)"><input type="number" id="num_bmFreq" class="num-input" min="1" max="14" step="1" oninput="updateEO('bmFreq', this.value)"></div>
-                <div class="settings-row"><label>Day/Night Length</label><input type="range" id="eo_phaseLen" min="0.2" max="3" step="0.1" oninput="updateEO('phaseLen', this.value)"><input type="number" id="num_phaseLen" class="num-input" min="0.2" max="3" step="0.1" oninput="updateEO('phaseLen', this.value)"></div>
-                <div class="settings-row"><label>Bandage Drop %</label><input type="range" id="eo_bandageDrop" min="0" max="1.0" step="0.05" oninput="updateEO('bandageDrop', this.value)"><input type="number" id="num_bandageDrop" class="num-input" min="0" max="1.0" step="0.05" oninput="updateEO('bandageDrop', this.value)"></div>
-                <div class="settings-row"><label>Starting Crates</label><input type="range" id="eo_crates" min="0" max="10" step="1" oninput="updateEO('crates', this.value)"><input type="number" id="num_crates" class="num-input" min="0" max="10" step="1" oninput="updateEO('crates', this.value)"></div>
-                <div class="settings-row"><label>Dojo Max HP</label><input type="range" id="eo_dojoHp" min="10" max="1000" step="10" oninput="updateEO('dojoHp', this.value)"><input type="number" id="num_dojoHp" class="num-input" min="10" max="1000" step="10" oninput="updateEO('dojoHp', this.value)"></div>
-                
-                <div class="settings-category">The Player</div>
-                <div class="settings-row"><label>Player Speed</label><input type="range" id="eo_pSpeed" min="0.5" max="3" step="0.1" oninput="updateEO('pSpeed', this.value)"><input type="number" id="num_pSpeed" class="num-input" min="0.5" max="3" step="0.1" oninput="updateEO('pSpeed', this.value)"></div>
-                <div class="settings-row"><label>Lifesteal / Hit</label><input type="range" id="eo_lifesteal" min="0" max="10" step="1" oninput="updateEO('lifesteal', this.value)"><input type="number" id="num_lifesteal" class="num-input" min="0" max="10" step="1" oninput="updateEO('lifesteal', this.value)"></div>
-                <div class="settings-row"><label>Knockback Power</label><input type="range" id="eo_knockback" min="0" max="5" step="0.1" oninput="updateEO('knockback', this.value)"><input type="number" id="num_knockback" class="num-input" min="0" max="5" step="0.1" oninput="updateEO('knockback', this.value)"></div>
-                <div class="settings-row"><label>Spin Cooldown</label><input type="range" id="eo_spinCd" min="0" max="3" step="0.1" oninput="updateEO('spinCd', this.value)"><input type="number" id="num_spinCd" class="num-input" min="0" max="3" step="0.1" oninput="updateEO('spinCd', this.value)"></div>
-                <div class="settings-row"><label>Stamina Drain</label><input type="range" id="eo_stamDrain" min="0" max="3" step="0.1" oninput="updateEO('stamDrain', this.value)"><input type="number" id="num_stamDrain" class="num-input" min="0" max="3" step="0.1" oninput="updateEO('stamDrain', this.value)"></div>
+        <!-- Title -->
+        <div id="mainMenu" class="menu-overlay title-screen">
+            <div class="title-block">
+                <div class="hanko" aria-hidden="true"><span>道</span><span>場</span></div>
+                <h1 class="game-title">Last Dojo</h1>
+            </div>
+            <p id="highScoreDisplay"></p>
+            <div id="dynamicMenuButtons" class="menu-buttons"></div>
+        </div>
 
-                <div class="settings-category">The Horde</div>
-                <div class="settings-row"><label>Max Zombies Cap</label><input type="range" id="eo_maxZ" min="5" max="150" step="5" oninput="updateEO('maxZ', this.value)"><input type="number" id="num_maxZ" class="num-input" min="5" max="150" step="5" oninput="updateEO('maxZ', this.value)"></div>
-                <div class="settings-row"><label>Spawn Rate</label><input type="range" id="eo_spawnRate" min="0.1" max="5" step="0.1" oninput="updateEO('spawnRate', this.value)"><input type="number" id="num_spawnRate" class="num-input" min="0.1" max="5" step="0.1" oninput="updateEO('spawnRate', this.value)"></div>
-                <div class="settings-row"><label>Zombie Health</label><input type="range" id="eo_zHealth" min="0.1" max="5" step="0.1" oninput="updateEO('zHealth', this.value)"><input type="number" id="num_zHealth" class="num-input" min="0.1" max="5" step="0.1" oninput="updateEO('zHealth', this.value)"></div>
-                <div class="settings-row"><label>Zombie Damage</label><input type="range" id="eo_zDamage" min="0.1" max="5" step="0.1" oninput="updateEO('zDamage', this.value)"><input type="number" id="num_zDamage" class="num-input" min="0.1" max="5" step="0.1" oninput="updateEO('zDamage', this.value)"></div>
-                <div class="settings-row"><label>Zombie Speed</label><input type="range" id="eo_zSpeed" min="0.5" max="3" step="0.1" oninput="updateEO('zSpeed', this.value)"><input type="number" id="num_zSpeed" class="num-input" min="0.5" max="3" step="0.1" oninput="updateEO('zSpeed', this.value)"></div>
-                
-                <div class="settings-category">The Warlord</div>
-                <div class="settings-row"><label>Boss Spawn Freq.</label><input type="range" id="eo_bossFreq" min="1" max="50" step="1" oninput="updateEO('bossFreq', this.value)"><input type="number" id="num_bossFreq" class="num-input" min="1" max="50" step="1" oninput="updateEO('bossFreq', this.value)"></div>
-                <div class="settings-row"><label>Boss Max Cap</label><input type="range" id="eo_bossCap" min="1" max="10" step="1" oninput="updateEO('bossCap', this.value)"><input type="number" id="num_bossCap" class="num-input" min="1" max="10" step="1" oninput="updateEO('bossCap', this.value)"></div>
-                <div class="settings-row"><label>Boss Health</label><input type="range" id="eo_bHealth" min="0.1" max="10" step="0.5" oninput="updateEO('bHealth', this.value)"><input type="number" id="num_bHealth" class="num-input" min="0.1" max="10" step="0.5" oninput="updateEO('bHealth', this.value)"></div>
-                <div class="settings-row"><label>Boss Speed</label><input type="range" id="eo_bSpeed" min="0.1" max="3" step="0.1" oninput="updateEO('bSpeed', this.value)"><input type="number" id="num_bSpeed" class="num-input" min="0.1" max="3" step="0.1" oninput="updateEO('bSpeed', this.value)"></div>
-                <div class="settings-row"><label>Boss Scale (Size)</label><input type="range" id="eo_bossSize" min="0.5" max="3" step="0.1" oninput="updateEO('bossSize', this.value)"><input type="number" id="num_bossSize" class="num-input" min="0.5" max="3" step="0.1" oninput="updateEO('bossSize', this.value)"></div>
+        <!-- Settings -->
+        <div id="settingsMenu" class="menu-overlay hidden">
+            <h2 class="menu-title">Settings</h2>
+            <div class="menu-buttons">
+                <button class="arcade-btn" id="audioBtn" onclick="toggleAudio()">Sound: on</button>
+                <button class="arcade-btn" onclick="openControlsMenu()">Controls</button>
+                <button class="arcade-btn" id="resetHintsBtn" onclick="resetHints()">Show tips and prologue again</button>
+                <button class="arcade-btn quiet" onclick="closeSettings()">Back</button>
+            </div>
+        </div>
+
+        <!-- Key bindings -->
+        <div id="controlsMenu" class="menu-overlay hidden">
+            <h2 class="menu-title">Controls</h2>
+            <p class="menu-sub">Click an action, then press the key you want. Arrow keys always move too.</p>
+            <div class="settings-container" id="controlsList"></div>
+            <div class="btn-row wide">
+                <button class="arcade-btn compact quiet" onclick="resetKeys()">Reset to defaults</button>
+                <button class="arcade-btn compact primary" onclick="closeControlsMenu()">Done</button>
+            </div>
+        </div>
+
+        <!-- How to play -->
+        <div id="howMenu" class="menu-overlay hidden">
+            <h2 class="menu-title">How to play</h2>
+            <div class="settings-container how" id="howBody"></div>
+            <button class="arcade-btn compact primary" onclick="closeHowToPlay()">Back</button>
+        </div>
+
+        <!-- Endless options -->
+        <div id="endlessSettingsMenu" class="menu-overlay hidden">
+            <h2 class="menu-title">Endless options</h2>
+            <div class="settings-container">
+                <div class="settings-category">The world</div>
+                <div class="settings-row"><label>Blood moon every N nights</label><input type="range" id="eo_bmFreq" min="1" max="14" step="1" oninput="updateEO('bmFreq', this.value)"><input type="number" id="num_bmFreq" class="num-input" min="1" max="14" step="1" oninput="updateEO('bmFreq', this.value)"></div>
+                <div class="settings-row"><label>Day and night length</label><input type="range" id="eo_phaseLen" min="0.2" max="3" step="0.1" oninput="updateEO('phaseLen', this.value)"><input type="number" id="num_phaseLen" class="num-input" min="0.2" max="3" step="0.1" oninput="updateEO('phaseLen', this.value)"></div>
+                <div class="settings-row"><label>Bandage drop chance</label><input type="range" id="eo_bandageDrop" min="0" max="1.0" step="0.01" oninput="updateEO('bandageDrop', this.value)"><input type="number" id="num_bandageDrop" class="num-input" min="0" max="1.0" step="0.01" oninput="updateEO('bandageDrop', this.value)"></div>
+                <div class="settings-row"><label>Supply caches per day</label><input type="range" id="eo_crates" min="0" max="6" step="1" oninput="updateEO('crates', this.value)"><input type="number" id="num_crates" class="num-input" min="0" max="6" step="1" oninput="updateEO('crates', this.value)"></div>
+                <div class="settings-row"><label>Dojo health</label><input type="range" id="eo_dojoHp" min="10" max="1000" step="10" oninput="updateEO('dojoHp', this.value)"><input type="number" id="num_dojoHp" class="num-input" min="10" max="1000" step="10" oninput="updateEO('dojoHp', this.value)"></div>
+
+                <div class="settings-category">The master</div>
+                <div class="settings-row"><label>Move speed</label><input type="range" id="eo_pSpeed" min="0.5" max="3" step="0.1" oninput="updateEO('pSpeed', this.value)"><input type="number" id="num_pSpeed" class="num-input" min="0.5" max="3" step="0.1" oninput="updateEO('pSpeed', this.value)"></div>
+                <div class="settings-row"><label>Lifesteal per hit</label><input type="range" id="eo_lifesteal" min="0" max="10" step="1" oninput="updateEO('lifesteal', this.value)"><input type="number" id="num_lifesteal" class="num-input" min="0" max="10" step="1" oninput="updateEO('lifesteal', this.value)"></div>
+                <div class="settings-row"><label>Knockback</label><input type="range" id="eo_knockback" min="0" max="5" step="0.1" oninput="updateEO('knockback', this.value)"><input type="number" id="num_knockback" class="num-input" min="0" max="5" step="0.1" oninput="updateEO('knockback', this.value)"></div>
+                <div class="settings-row"><label>Spin kick cooldown</label><input type="range" id="eo_spinCd" min="0" max="3" step="0.1" oninput="updateEO('spinCd', this.value)"><input type="number" id="num_spinCd" class="num-input" min="0" max="3" step="0.1" oninput="updateEO('spinCd', this.value)"></div>
+                <div class="settings-row"><label>Stamina cost</label><input type="range" id="eo_stamDrain" min="0" max="3" step="0.1" oninput="updateEO('stamDrain', this.value)"><input type="number" id="num_stamDrain" class="num-input" min="0" max="3" step="0.1" oninput="updateEO('stamDrain', this.value)"></div>
+
+                <div class="settings-category">The horde</div>
+                <div class="settings-row"><label>Most dead at once</label><input type="range" id="eo_maxZ" min="5" max="150" step="5" oninput="updateEO('maxZ', this.value)"><input type="number" id="num_maxZ" class="num-input" min="5" max="150" step="5" oninput="updateEO('maxZ', this.value)"></div>
+                <div class="settings-row"><label>Spawn rate</label><input type="range" id="eo_spawnRate" min="0.1" max="5" step="0.1" oninput="updateEO('spawnRate', this.value)"><input type="number" id="num_spawnRate" class="num-input" min="0.1" max="5" step="0.1" oninput="updateEO('spawnRate', this.value)"></div>
+                <div class="settings-row"><label>Zombie health</label><input type="range" id="eo_zHealth" min="0.1" max="5" step="0.1" oninput="updateEO('zHealth', this.value)"><input type="number" id="num_zHealth" class="num-input" min="0.1" max="5" step="0.1" oninput="updateEO('zHealth', this.value)"></div>
+                <div class="settings-row"><label>Zombie damage</label><input type="range" id="eo_zDamage" min="0.1" max="5" step="0.1" oninput="updateEO('zDamage', this.value)"><input type="number" id="num_zDamage" class="num-input" min="0.1" max="5" step="0.1" oninput="updateEO('zDamage', this.value)"></div>
+                <div class="settings-row"><label>Zombie speed</label><input type="range" id="eo_zSpeed" min="0.5" max="3" step="0.1" oninput="updateEO('zSpeed', this.value)"><input type="number" id="num_zSpeed" class="num-input" min="0.5" max="3" step="0.1" oninput="updateEO('zSpeed', this.value)"></div>
+
+                <div class="settings-category">Champions</div>
+                <div class="settings-row"><label>Vessel every N nights</label><input type="range" id="eo_bossFreq" min="1" max="50" step="1" oninput="updateEO('bossFreq', this.value)"><input type="number" id="num_bossFreq" class="num-input" min="1" max="50" step="1" oninput="updateEO('bossFreq', this.value)"></div>
+                <div class="settings-row"><label>Most Vessels at once</label><input type="range" id="eo_bossCap" min="1" max="10" step="1" oninput="updateEO('bossCap', this.value)"><input type="number" id="num_bossCap" class="num-input" min="1" max="10" step="1" oninput="updateEO('bossCap', this.value)"></div>
+                <div class="settings-row"><label>Champion health</label><input type="range" id="eo_bHealth" min="0.1" max="10" step="0.1" oninput="updateEO('bHealth', this.value)"><input type="number" id="num_bHealth" class="num-input" min="0.1" max="10" step="0.1" oninput="updateEO('bHealth', this.value)"></div>
+                <div class="settings-row"><label>Champion speed</label><input type="range" id="eo_bSpeed" min="0.1" max="3" step="0.1" oninput="updateEO('bSpeed', this.value)"><input type="number" id="num_bSpeed" class="num-input" min="0.1" max="3" step="0.1" oninput="updateEO('bSpeed', this.value)"></div>
+                <div class="settings-row"><label>Champion size</label><input type="range" id="eo_bossSize" min="0.5" max="3" step="0.1" oninput="updateEO('bossSize', this.value)"><input type="number" id="num_bossSize" class="num-input" min="0.5" max="3" step="0.1" oninput="updateEO('bossSize', this.value)"></div>
 
                 <div class="settings-category">Mutators</div>
-                <div class="settings-row" style="justify-content: flex-start;"><input type="checkbox" id="eo_infStamReg"><label>Infinite Stamina (Normal Nights)</label></div>
-                <div class="settings-row" style="justify-content: flex-start;"><input type="checkbox" id="eo_infStamBM"><label>Infinite Stamina (Blood Moons)</label></div>
-                <div class="settings-row" style="justify-content: flex-start;"><input type="checkbox" id="eo_dojoRegen"><label>Dojo Auto-Regen (Daytime)</label></div>
-                <div class="settings-row" style="justify-content: flex-start;"><input type="checkbox" id="eo_explodeZ"><label>Exploding Zombies</label></div>
-                <div class="settings-row" style="justify-content: flex-start;"><input type="checkbox" id="eo_pitchBlack"><label>Pitch Black Mode</label></div>
-                <div class="settings-row" style="justify-content: flex-start;"><input type="checkbox" id="eo_lavaMode"><label>The Floor is Lava</label></div>
-                <div class="settings-row" style="justify-content: flex-start;"><input type="checkbox" id="eo_ohk"><label style="color:#F00">ONE HIT KILL MODE</label></div>
+                <label class="check-row"><input type="checkbox" id="eo_noKegare"> No Kegare (infection off)</label>
+                <label class="check-row"><input type="checkbox" id="eo_infStamReg"> Free stamina on normal nights</label>
+                <label class="check-row"><input type="checkbox" id="eo_infStamBM"> Free stamina on blood moons</label>
+                <label class="check-row"><input type="checkbox" id="eo_dojoRegen"> Dojo repairs 25% each dawn</label>
+                <label class="check-row"><input type="checkbox" id="eo_explodeZ"> The dead leave acid when they fall</label>
+                <label class="check-row"><input type="checkbox" id="eo_pitchBlack"> Pitch black</label>
+                <label class="check-row"><input type="checkbox" id="eo_lavaMode"> The floor is lava (a new pool each dawn)</label>
+                <label class="check-row danger"><input type="checkbox" id="eo_ohk"> One hit kills</label>
             </div>
-            <button class="arcade-btn" onclick="saveEndlessSettings()">SAVE & BACK</button>
+            <div class="btn-row wide">
+                <button class="arcade-btn compact quiet" onclick="resetEndlessSettings()">Reset to defaults</button>
+                <button class="arcade-btn compact primary" onclick="saveEndlessSettings()">Save and go back</button>
+            </div>
         </div>
 
+        <!-- Dawn technique choice -->
+        <div id="choiceMenu" class="menu-overlay choice hidden">
+            <h2 class="menu-title" id="choiceTitle">Dawn</h2>
+            <p class="menu-sub" id="choiceSub">The sun burns the dead away. You meditate on the night's fighting. Choose a technique.</p>
+            <div id="choiceCards"></div>
+            <div id="choiceShop" class="choice-shop"></div>
+            <p class="menu-hint" id="choiceHint">Press 1, 2 or 3, or click a card.</p>
+        </div>
+
+        <!-- Pause -->
         <div id="pauseMenu" class="menu-overlay hidden">
-            <h1 class="menu-title">PAUSED</h1>
-            <button class="arcade-btn" onclick="document.dispatchEvent(new Event('togglePause'))">RESUME (P)</button>
-            <button class="arcade-btn" onclick="openSettings()">SETTINGS</button>
-            <button class="arcade-btn" onclick="quitToMenu()">MAIN MENU (Q)</button>
+            <h2 class="menu-title">Paused</h2>
+            <div id="pauseTech" class="pause-tech"></div>
+            <div class="menu-buttons">
+                <button class="arcade-btn primary" onclick="resumeGame()">Resume</button>
+                <button class="arcade-btn hidden" id="skipPrologueBtn" onclick="skipPrologue()">Skip prologue</button>
+                <button class="arcade-btn" onclick="openHowToPlay('pause')">How to play</button>
+                <button class="arcade-btn" onclick="openSettings()">Settings</button>
+                <button class="arcade-btn quiet" onclick="quitToMenu()">Main menu (Q)</button>
+            </div>
         </div>
 
+        <!-- Game over -->
         <div id="gameOverMenu" class="menu-overlay hidden">
-            <h1 class="menu-title" id="goTitle">YOU DIED</h1>
-            <p id="goDesc" style="font-size: 24px; margin-bottom: 30px;">Survived to Day X</p>
-            <button class="arcade-btn" onclick="restartGame()">RESTART (SPACE)</button>
-            <button class="arcade-btn" onclick="quitToMenu()">MAIN MENU (Q)</button>
+            <h2 class="menu-title big" id="goTitle">You died</h2>
+            <p class="menu-line" id="goLine"></p>
+            <p class="menu-sub" id="goDesc"></p>
+            <div class="menu-buttons">
+                <button class="arcade-btn primary" onclick="restartGame()">Try again (Space)</button>
+                <button class="arcade-btn quiet" onclick="quitToMenu()">Main menu (Q)</button>
+            </div>
         </div>
 
+        <!-- Victory -->
         <div id="victoryMenu" class="menu-overlay hidden">
-            <h1 class="menu-title">VICTORY</h1>
-            <p style="font-size: 24px; margin-bottom: 10px; text-align:center; padding: 0 20px;">The Dojo stands. The Warlord's vessel is shattered.</p>
-            <p style="font-size: 24px; color: #d32f2f; margin-bottom: 30px; font-weight: bold; text-align:center;">ENDLESS MODE UNLOCKED</p>
-            <button class="arcade-btn" onclick="restartGame()">CONTINUE (SPACE)</button>
-            <button class="arcade-btn" onclick="quitToMenu()">MAIN MENU (Q)</button>
+            <h2 class="menu-title big">The Dojo stands</h2>
+            <p class="menu-line">Magatsuhi's vessel is ash. Endless mode is unlocked.</p>
+            <p class="menu-sub" id="vicDesc"></p>
+            <div class="menu-buttons">
+                <button class="arcade-btn primary" onclick="startEpilogueMenu()">Epilogue</button>
+                <button class="arcade-btn quiet" onclick="quitToMenu()">Main menu (Q)</button>
+            </div>
         </div>
     </div>
 
     <script type="module" src="game.js"></script>
-
 </body>
 </html>

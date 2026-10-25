@@ -1,300 +1,241 @@
 /* =========================================
-   LAST DOJO V2 - INPUT CONTROLLER (input.js)
+   LAST DOJO V3 - INPUT CONTROLLER (input.js)
 ========================================= */
+
+export const ACTIONS = ['up', 'left', 'down', 'right', 'punch', 'spin', 'dash', 'interact', 'eat', 'unleash', 'pause'];
+
+export const ACTION_LABELS = {
+    up: 'Move up', left: 'Move left', down: 'Move down', right: 'Move right',
+    punch: 'Punch', spin: 'Spin kick', dash: 'Dash', interact: 'Interact (rest, offer)',
+    eat: 'Eat meat', unleash: 'Unleash essence', pause: 'Pause'
+};
+
+const ARROWS = { arrowup: 'up', arrowdown: 'down', arrowleft: 'left', arrowright: 'right' };
 
 export class InputController {
     constructor() {
         this.isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
         this.isEditingHUD = false;
-        
-        // Define default key mappings
-        this.defaultKeys = { 
-            up: 'w', left: 'a', down: 's', right: 'd', 
-            punch: ' ', spin: 'shift', sleep: 'e', eat: 'r', pause: 'p' 
+
+        this.defaultKeys = {
+            up: 'w', left: 'a', down: 's', right: 'd',
+            punch: ' ', spin: 'shift', dash: 'f', interact: 'e', eat: 'r', unleash: 'q', pause: 'p'
         };
-        
-        // Load user keys from local storage or fallback to defaults
-        this.userKeys = JSON.parse(localStorage.getItem('lastDojoKeys')) || { ...this.defaultKeys };
+        let stored = null;
+        try { stored = JSON.parse(localStorage.getItem('lastDojoKeys')); } catch (e) {}
+        this.userKeys = { ...this.defaultKeys, ...(stored || {}) };
+        // migrate V2 bindings: the old "sleep" key becomes "interact"
+        if (stored && stored.sleep && !stored.interact) this.userKeys.interact = stored.sleep;
+        delete this.userKeys.sleep;
         this.bindingAction = null;
 
-        // The live state of all inputs that the Game Loop will read
-        this.keys = { 
-            up: false, down: false, left: false, right: false, 
-            punch: false, spin: false, eat: false, sleep: false, pause: false 
-        };
-        this.mouse = { left: false, right: false }; 
-
-        // Action-Ready flags (prevents holding a key to spam an action)
-        this.eReady = true; 
-        this.rReady = true; 
-        this.shiftReady = true;
+        this.keys = {};
+        ACTIONS.forEach(a => this.keys[a] = false);
+        this.pressedAt = {};
+        this.mouse = { left: false, right: false };
 
         this.initKeyboard();
         this.initMouse();
-        if (this.isTouchDevice) {
-            this.initTouch();
-        }
+        if (this.isTouchDevice) this.initTouch();
     }
 
-    // --- KEYBOARD LOGIC ---
+    // ---- buffered presses: a press counts if consumed within a short window ----
+    press(a) {
+        if (!this.keys[a]) this.pressedAt[a] = performance.now();
+        this.keys[a] = true;
+    }
+    release(a) { this.keys[a] = false; }
+    consume(a, windowMs = 160) {
+        const t = this.pressedAt[a];
+        if (t && performance.now() - t <= windowMs) { this.pressedAt[a] = 0; return true; }
+        return false;
+    }
+    clearPresses() { this.pressedAt = {}; }
+
+    actionsFor(key) {
+        const out = ACTIONS.filter(a => this.userKeys[a] === key);
+        if (ARROWS[key] && !out.includes(ARROWS[key])) out.push(ARROWS[key]);
+        return out;
+    }
+
+    saveKeys() { localStorage.setItem('lastDojoKeys', JSON.stringify(this.userKeys)); }
+
+    // --- KEYBOARD ---
     initKeyboard() {
-        window.addEventListener('keydown', (e) => { 
-            if(this.bindingAction) {
+        window.addEventListener('keydown', (e) => {
+            const key = e.key.toLowerCase();
+            if (this.bindingAction) {
                 e.preventDefault();
-                let k = e.key.toLowerCase(); 
-                if (k === 'escape') return; 
-                this.userKeys[this.bindingAction] = k;
-                localStorage.setItem('lastDojoKeys', JSON.stringify(this.userKeys));
+                if (key === 'escape') { this.bindingAction = null; document.dispatchEvent(new Event('keysUpdated')); return; }
+                // swap if another action already uses this key
+                const prev = this.userKeys[this.bindingAction];
+                for (const a of ACTIONS) if (a !== this.bindingAction && this.userKeys[a] === key) this.userKeys[a] = prev;
+                this.userKeys[this.bindingAction] = key;
+                this.saveKeys();
                 this.bindingAction = null;
-                // Note: The UI update function will need to be called externally
                 document.dispatchEvent(new Event('keysUpdated'));
                 return;
             }
+            const tag = (e.target && e.target.tagName) || '';
+            if (tag === 'INPUT') return;
 
-            let key = e.key.toLowerCase(); 
-            // Prevent default browser scrolling for game keys
-            if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) e.preventDefault(); 
-            
-            if (key === this.userKeys.up) this.keys.up = true;
-            if (key === this.userKeys.down) this.keys.down = true;
-            if (key === this.userKeys.left) this.keys.left = true;
-            if (key === this.userKeys.right) this.keys.right = true;
-            if (key === this.userKeys.sleep) this.keys.sleep = true;
-            if (key === this.userKeys.eat) this.keys.eat = true;
-            if (key === this.userKeys.punch) this.keys.punch = true;
-            if (key === this.userKeys.spin) this.keys.spin = true;
-            if (key === this.userKeys.pause || key === 'escape') {
-                this.keys.pause = true;
-                document.dispatchEvent(new Event('togglePause'));
-            }
+            const acts = this.actionsFor(key);
+            if (acts.length || [' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) e.preventDefault();
+            for (const a of acts) this.press(a);
 
-            // Global generic confirms
-            if (key === ' ' || key === 'enter') { 
-                document.dispatchEvent(new Event('gameConfirm')); 
-            }
-            if (key === 'q') { 
-                document.dispatchEvent(new Event('quitToMenu')); 
-            }
-            if (key === 'o') { 
-                document.dispatchEvent(new Event('openSettings')); 
-            }
+            if (e.repeat) return;
+            if (acts.includes('pause') || key === 'escape') document.dispatchEvent(new Event('togglePause'));
+            if (key === ' ' || key === 'enter') document.dispatchEvent(new Event('gameConfirm'));
+            if (key === 'q') document.dispatchEvent(new Event('quitToMenu'));
+            if (['1', '2', '3', '4'].includes(key)) document.dispatchEvent(new CustomEvent('choicePick', { detail: { index: Number(key) - 1 } }));
         });
-        
-        window.addEventListener('keyup', (e) => { 
-            if(this.bindingAction) return; 
-            let key = e.key.toLowerCase(); 
-            
-            if (key === this.userKeys.up) this.keys.up = false;
-            if (key === this.userKeys.down) this.keys.down = false;
-            if (key === this.userKeys.left) this.keys.left = false;
-            if (key === this.userKeys.right) this.keys.right = false;
-            if (key === this.userKeys.punch) this.keys.punch = false;
-            if (key === this.userKeys.pause || key === 'escape') this.keys.pause = false;
-            if (key === this.userKeys.sleep) { this.keys.sleep = false; this.eReady = true; }
-            if (key === this.userKeys.eat) { this.keys.eat = false; this.rReady = true; }
-            if (key === this.userKeys.spin) { this.keys.spin = false; this.shiftReady = true; }
+
+        window.addEventListener('keyup', (e) => {
+            if (this.bindingAction) return;
+            for (const a of this.actionsFor(e.key.toLowerCase())) this.release(a);
         });
     }
 
-    // --- MOUSE LOGIC ---
+    // --- MOUSE ---
     initMouse() {
         const canvas = document.getElementById('gameCanvas');
-        if (!canvas) return; // Safeguard if DOM isn't fully loaded
-
+        if (!canvas) return;
         canvas.addEventListener('contextmenu', e => e.preventDefault());
-        
         canvas.addEventListener('mousedown', (e) => {
-            // Trigger a custom event to let the game handle clicks in specific states
             document.dispatchEvent(new CustomEvent('canvasClick', { detail: { button: e.button } }));
-            
-            if (e.button === 0) this.mouse.left = true; 
+            if (e.button === 0) this.mouse.left = true;
             if (e.button === 2) this.mouse.right = true;
         });
-        
-        window.addEventListener('mouseup', (e) => { 
-            if (e.button === 0) this.mouse.left = false; 
-            if (e.button === 2) this.mouse.right = false; 
+        window.addEventListener('mouseup', (e) => {
+            if (e.button === 0) this.mouse.left = false;
+            if (e.button === 2) this.mouse.right = false;
         });
-
-        // Clear inputs if user clicks outside the canvas or tabs out
-        document.addEventListener('mousedown', (e) => {
-            if (e.target !== canvas) {
-                this.resetMovement();
-            }
-        });
-
-        window.addEventListener('blur', () => {
-            this.resetMovement();
-        });
+        window.addEventListener('blur', () => this.resetMovement());
     }
 
-    // --- MOBILE TOUCH LOGIC ---
+    // --- TOUCH ---
     initTouch() {
-        let joyZone = document.getElementById('joystickZone'); 
-        let joyBase = document.getElementById('joystickBase'); 
-        let joyStick = document.getElementById('joystickStick');
-        
-        if(!joyZone || !joyBase || !joyStick) return;
+        const joyZone = document.getElementById('joystickZone');
+        const joyBase = document.getElementById('joystickBase');
+        const joyStick = document.getElementById('joystickStick');
+        if (!joyZone || !joyBase || !joyStick) return;
 
-        let joyActive = false; 
-        let joyOrigin = {x:0, y:0}; 
-        let joyMax = 40; 
-        let joyTouchId = null;
+        let active = false, origin = { x: 0, y: 0 }, touchId = null;
+        const max = 40;
 
-        // Joystick Start
         joyZone.addEventListener('touchstart', (e) => {
-            e.preventDefault(); 
-            if (joyActive || this.isEditingHUD) return; 
-            
-            let touch = e.changedTouches[0]; 
-            joyTouchId = touch.identifier; 
-            joyActive = true;
-            joyOrigin = { x: touch.clientX, y: touch.clientY };
-            
-            joyBase.style.left = (joyOrigin.x) + 'px'; 
-            joyBase.style.top = (joyOrigin.y) + 'px'; 
-            joyBase.style.bottom = 'auto'; 
+            e.preventDefault();
+            if (active || this.isEditingHUD) return;
+            const t = e.changedTouches[0];
+            touchId = t.identifier; active = true;
+            origin = { x: t.clientX, y: t.clientY };
+            const rect = document.getElementById('gameContainer').getBoundingClientRect();
+            // position the base in container space (handles the rotated portrait layout)
+            let lx = t.clientX - rect.left, ly = t.clientY - rect.top;
+            if (window.innerHeight > window.innerWidth) { lx = t.clientY - rect.top; ly = rect.right - t.clientX; }
+            joyBase.style.left = lx + 'px'; joyBase.style.top = ly + 'px';
             joyBase.style.display = 'flex';
-            
-            this.updateJoy(touch, joyOrigin, joyMax, joyStick);
-        }, {passive: false});
+            this.updateJoy(t, origin, max, joyStick);
+        }, { passive: false });
 
-        // Joystick Move
         document.addEventListener('touchmove', (e) => {
-            if (!joyActive || this.isEditingHUD) return;
-            for(let i=0; i<e.changedTouches.length; i++) { 
-                if(e.changedTouches[i].identifier === joyTouchId) { 
-                    e.preventDefault(); 
-                    this.updateJoy(e.changedTouches[i], joyOrigin, joyMax, joyStick); 
-                    break; 
-                } 
+            if (!active || this.isEditingHUD) return;
+            for (const t of e.changedTouches) {
+                if (t.identifier === touchId) { e.preventDefault(); this.updateJoy(t, origin, max, joyStick); break; }
             }
-        }, {passive: false});
+        }, { passive: false });
 
-        // Joystick End
-        const stopJoy = (e) => {
-            if (!joyActive || this.isEditingHUD) return;
-            for(let i=0; i<e.changedTouches.length; i++) {
-                if(e.changedTouches[i].identifier === joyTouchId) {
-                    joyActive = false; 
-                    joyTouchId = null; 
-                    joyStick.style.transform = `translate(0px, 0px)`; 
+        const stop = (e) => {
+            if (!active) return;
+            for (const t of e.changedTouches) {
+                if (t.identifier === touchId) {
+                    active = false; touchId = null;
+                    joyStick.style.transform = 'translate(0px, 0px)';
                     joyBase.style.display = 'none';
-                    this.keys.up = false; 
-                    this.keys.down = false; 
-                    this.keys.left = false; 
-                    this.keys.right = false; 
+                    ['up', 'down', 'left', 'right'].forEach(a => this.release(a));
                     break;
                 }
             }
         };
-        document.addEventListener('touchend', stopJoy); 
-        document.addEventListener('touchcancel', stopJoy);
+        document.addEventListener('touchend', stop);
+        document.addEventListener('touchcancel', stop);
 
-        // Bind HUD Buttons
-        this.bindTouchBtn('btnPunch', 'punch'); 
-        this.bindTouchBtn('btnSpin', 'spin'); 
-        this.bindTouchBtn('btnEat', 'eat'); 
-        this.bindTouchBtn('btnSleep', 'sleep');
+        const map = { btnPunch: 'punch', btnSpin: 'spin', btnDash: 'dash', btnAct: 'interact', btnEat: 'eat', btnRush: 'unleash' };
+        for (const id in map) this.bindTouchBtn(id, map[id]);
+        this.bindTouchBtn('btnPause', null);
+
+        // tapping the canvas confirms on story screens and game over
+        document.getElementById('gameCanvas').addEventListener('touchstart', () => {
+            document.dispatchEvent(new CustomEvent('canvasClick', { detail: { button: 0 } }));
+        }, { passive: true });
     }
 
-    updateJoy(touch, joyOrigin, joyMax, joyStick) {
-        let dx = touch.clientX - joyOrigin.x; 
-        let dy = touch.clientY - joyOrigin.y;
-        
-        // Handle CSS Portrait Hack math adjustment
-        if (window.innerHeight > window.innerWidth) { 
-            let tmp = dx; dx = dy; dy = -tmp; 
-        }
-        
-        let dist = Math.hypot(dx, dy); 
-        if (dist > joyMax) { 
-            dx = (dx/dist)*joyMax; 
-            dy = (dy/dist)*joyMax; 
-        }
-        joyStick.style.transform = `translate(${dx}px, ${dy}px)`;
-        
-        let deadzone = 10;
-        this.keys.up = dy < -deadzone; 
-        this.keys.down = dy > deadzone; 
-        this.keys.left = dx < -deadzone; 
-        this.keys.right = dx > deadzone;
+    updateJoy(t, origin, max, stick) {
+        let dx = t.clientX - origin.x, dy = t.clientY - origin.y;
+        if (window.innerHeight > window.innerWidth) { const tmp = dx; dx = dy; dy = -tmp; }
+        const d = Math.hypot(dx, dy);
+        if (d > max) { dx = dx / d * max; dy = dy / d * max; }
+        stick.style.transform = `translate(${dx}px, ${dy}px)`;
+        const dz = 10;
+        const set = (a, on) => on ? this.press(a) : this.release(a);
+        set('up', dy < -dz); set('down', dy > dz); set('left', dx < -dz); set('right', dx > dz);
     }
 
-    bindTouchBtn(id, keyName) {
-        let btn = document.getElementById(id); 
-        if(!btn) return; 
-        let isDragging = false;
-        
-        btn.addEventListener('touchstart', (e) => { 
-            if(this.isEditingHUD) { 
-                isDragging = true; 
-            } else { 
-                e.preventDefault(); 
-                this.keys[keyName] = true; 
-            }
-        }, {passive:false});
-        
+    bindTouchBtn(id, action) {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        let dragging = false;
+        btn.addEventListener('touchstart', (e) => {
+            if (this.isEditingHUD) { dragging = true; return; }
+            e.preventDefault();
+            if (action) this.press(action);
+            else document.dispatchEvent(new Event('togglePause'));
+        }, { passive: false });
         btn.addEventListener('touchmove', (e) => {
-            if (this.isEditingHUD && isDragging) {
-                e.preventDefault(); 
-                let touch = e.touches[0]; 
-                let percentX, percentY;
-                if (window.innerHeight > window.innerWidth) {
-                    percentX = (touch.clientY / window.innerHeight) * 100; 
-                    percentY = ((window.innerWidth - touch.clientX) / window.innerWidth) * 100;
-                } else {
-                    percentX = (touch.clientX / window.innerWidth) * 100; 
-                    percentY = (touch.clientY / window.innerHeight) * 100;
-                }
-                percentX = Math.max(5, Math.min(95, percentX)); 
-                percentY = Math.max(5, Math.min(95, percentY));
-                btn.style.left = percentX + '%'; 
-                btn.style.top = percentY + '%'; 
-                btn.style.right = 'auto'; 
-                btn.style.bottom = 'auto';
-            }
-        }, {passive:false});
-        
-        btn.addEventListener('touchend', (e) => { 
-            if (this.isEditingHUD) { 
-                isDragging = false; 
+            if (!(this.isEditingHUD && dragging)) return;
+            e.preventDefault();
+            const t = e.touches[0];
+            let px, py;
+            if (window.innerHeight > window.innerWidth) {
+                px = (t.clientY / window.innerHeight) * 100;
+                py = ((window.innerWidth - t.clientX) / window.innerWidth) * 100;
             } else {
-                e.preventDefault(); 
-                this.keys[keyName] = false; 
-                if(keyName === 'sleep') this.eReady = true; 
-                if(keyName === 'eat') this.rReady = true; 
-                if(keyName === 'spin') this.shiftReady = true; 
+                px = (t.clientX / window.innerWidth) * 100;
+                py = (t.clientY / window.innerHeight) * 100;
             }
+            btn.style.left = Math.max(5, Math.min(95, px)) + '%';
+            btn.style.top = Math.max(5, Math.min(95, py)) + '%';
+        }, { passive: false });
+        btn.addEventListener('touchend', (e) => {
+            if (this.isEditingHUD) { dragging = false; return; }
+            e.preventDefault();
+            if (action) this.release(action);
         });
     }
 
-    // --- HELPER METHODS ---
     resetMovement() {
-        for (let k in this.keys) this.keys[k] = false; 
-        this.mouse.left = false; 
-        this.mouse.right = false;
+        for (const k in this.keys) this.keys[k] = false;
+        this.mouse.left = false; this.mouse.right = false;
     }
 
-    getDisplayKey(k) { 
-        if (k === ' ') return 'SPACE';
-        if (k === 'escape') return 'ESC';
-        return k.toUpperCase(); 
+    getDisplayKey(k) {
+        if (k === undefined || k === null) return '?';
+        if (k === ' ') return 'Space';
+        if (k === 'escape') return 'Esc';
+        if (k === 'shift') return 'Shift';
+        if (k.startsWith('arrow')) return k.replace('arrow', '').replace(/^./, c => c.toUpperCase());
+        return k.length === 1 ? k.toUpperCase() : k.charAt(0).toUpperCase() + k.slice(1);
     }
 
     startBinding(action) {
-        if(this.bindingAction) {
-            let oldBtn = document.getElementById('bind_' + this.bindingAction);
-            if(oldBtn) oldBtn.classList.remove('waiting');
+        if (this.bindingAction) {
+            const old = document.getElementById('bind_' + this.bindingAction);
+            if (old) old.classList.remove('waiting');
         }
         this.bindingAction = action;
-        let btn = document.getElementById('bind_' + action);
-        if(btn) {
-            btn.innerText = 'PRESS KEY...';
-            btn.classList.add('waiting');
-        }
+        const btn = document.getElementById('bind_' + action);
+        if (btn) { btn.innerText = 'Press a key'; btn.classList.add('waiting'); }
     }
 }
 
-// Export a single, global instance
 export const Input = new InputController();

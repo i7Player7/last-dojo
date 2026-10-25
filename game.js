@@ -1,2408 +1,1832 @@
 /* =========================================
-   LAST DOJO V2 - CORE ENGINE (game.js)
+   LAST DOJO V3 - CORE ENGINE (game.js)
 ========================================= */
-import { sfx, sprDojo, sprDummy, sprSun, sprMoon, sprBloodMoon, sprMeat } from './assets.js';
+import { sfx } from './assets.js';
 import { Input } from './input.js';
 import { UI } from './ui.js';
-import { Player, Zombie, Corpse, Loot, Projectile, Particle, FloatText, Decal, DamagePool, DirtMound } from './entities.js';
-
-(function injectFavicon() {
-    try {
-        let link = document.createElement('link');
-        link.type = 'image/png';
-        link.rel = 'icon';
-        
-        let tempCanvas = document.createElement('canvas');
-        tempCanvas.width = 32; tempCanvas.height = 32;
-        tempCanvas.getContext('2d').drawImage(sprDojo, 0, 0, 32, 32);
-        
-        link.href = tempCanvas.toDataURL();
-        document.head.appendChild(link);
-    } catch(e) { console.log("Favicon injection bypassed."); }
-})();
+import {
+    W, H, WORLD_W, FEET_MIN, FEET_MAX, FOREST_END, SANCT_START,
+    DOJO, DOJO_DOOR, DOJO_HP, DOJO_HIT_EVERY, SHRINE, SEAL, SURVIVAL_DAYS, BLOOD_MOON_EVERY, DAY_LEN, NIGHT_LEN,
+    PLAYER, KEGARE, ENEMY, BOSS_NAMES, TECHNIQUES, HINTS, EPILOGUE,
+    POT, MEAT, MEAL, MEDITATE, TECH_GROUPS
+} from './config.js';
+import { Prologue } from './prologue.js';
+import { Player, Enemy, Corpse, Loot, Projectile, Particle, FloatText, Decal, Pool, Cache, Slash, Ring } from './entities.js';
+import { Renderer } from './render.js';
 
 const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const dist = (ax, ay, bx, by) => Math.hypot(bx - ax, by - ay);
+const rectHit = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+const fx = e => e.x + e.w / 2;
+const fy = e => e.y + e.h;
+
+// Things nothing can walk through
+const POND = { x: 2370, y: 512, w: 200, h: 70 };
+const SHRINE_BASE = { x: SHRINE.x - 34, y: SHRINE.y - 14, w: 68, h: 16 };
+const SEAL_BASE = { x: SEAL.x - 30, y: SEAL.y - 12, w: 60, h: 14 };
+const POT_BASE = { x: POT.x - 22, y: POT.y - 10, w: 44, h: 12 };
+// The Dojo backs onto the estate wall, so nothing can slip behind it (its roof would hide them).
+// It reaches the top of the screen so anything caught inside is pushed sideways or forward, never up.
+const DOJO_BLOCK = { x: DOJO.x, y: 0, w: DOJO.w, h: DOJO.y + DOJO.h };
+const OBSTACLES = [DOJO_BLOCK, POND, SHRINE_BASE, SEAL_BASE, POT_BASE];
+// The horde can only break the Dojo from in front of its doors.
+const DOOR_ZONE = { x: DOJO.x - 12, y: DOJO.y + DOJO.h - 4, w: DOJO.w + 24, h: 40 };
 
 class Game {
     constructor() {
-        this.state = 'START'; 
-        this.gameMode = 'SURVIVAL'; 
-        this.paused = false; 
-        this.hitStop = 0; 
+        this.state = 'START';
+        this.mode = 'SURVIVAL';
+        this.paused = false;
         this.frames = 0;
-        this.worldWidth = 2500; 
-        this.camera = { x: 738, deadzoneW: 200 };
-        this.currentRoom = 'HUB'; 
-        
-        this.dojo = { x: 798, y: 260, w: 60, h: 40, hp: 300, maxHp: 300 };
-        this.dummy = { x: 918, y: 260, hits: 0, hitsNeeded: 15, level: 1 };
-        
-        this.timeTimer = 5400; this.phaseDur = 5400;
-        this.isDay = true; this.dayCount = 1; this.food = 0; this.sleepFade = 0;
-        this.isSiege = false; this.peacefulNight = false; this.shake = 0; this.damageFlash = 0;
-        this.announceTimer = 0; this.announceText = ""; this.subAnnounceText = "";
-        this.sunriseTimer = 0;
-        this.spinCooldown = 0;
-        this.tutPhase = 0; this.tutText = ""; this.tutTimer = 0;
-        this.epiPhase = 0; this.epiTimer = 0;
-        this.scenery = []; 
-        this.forestTrees = [];
-        this.sanctuaryFlora = [];
-        this.decals = []; this.damagePools = [];
-        this.mounds = []; 
-        
-        this.activePrompt = { text: '', action: null, target: null };
-        this.epiLines = [
-            "The Warlord's physical vessel is shattered.",
-            "The seal holds.",
-            "Sunlight turns its empty shell to ash...",
-            "...forcing its essence back underground.",
-            "It is not dead. The plague is eternal...",
-            "...and it will build a new body.",
-            "But as long as you draw breath...",
-            "...the Last Dojo stands ready.",
-            "ENDLESS MODE UNLOCKED."
-        ];
-        this.setupEventListeners();
-        this.generateScenery(); 
-        this.resetEntities(); 
-        
+        this.camera = { x: DOJO_DOOR.x - W / 2 };
+        this.dojo = { hp: DOJO_HP, maxHp: DOJO_HP };
+        this.ParticleClass = Particle;
+        this.script = null;
+        this.hintsSeen = new Set(JSON.parse(localStorage.getItem('lastDojoHints') || '[]'));
+
+        this.renderer = new Renderer(canvas, this);
+        this.generateTrees();
+        this.renderer.buildBackground(this.trees);
+        this.resetWorld();
+        this.setupMenuScene();
+        this.setupEvents();
         UI.init();
     }
-    setupEventListeners() {
-        document.addEventListener('startGame', (e) => this.startRun(e.detail.mode));
-        document.addEventListener('startTutorial', () => this.startTutorial());
-        document.addEventListener('startEpilogue', () => this.startEpilogue());
-        document.addEventListener('restartGame', () => this.restartGame());
-        
-        document.addEventListener('quitToMenu', () => { 
-            if (this.paused) { 
-                this.paused = false; 
-                UI.showMainMenu(); 
-                this.state = 'START'; 
-            }
-        });
-        
-        document.addEventListener('togglePause', () => this.togglePause());
-        
-        document.addEventListener('requestCloseSettings', () => {
-            if (this.paused) UI.showPause(); else UI.showMainMenu();
-        });
-        document.addEventListener('gameConfirm', () => {
-            if (this.state === 'GAMEOVER' || this.state === 'VICTORY') this.restartGame();
-        });
-        document.addEventListener('canvasClick', () => {
-            if (this.state === 'GAMEOVER' || this.state === 'VICTORY') { this.restartGame(); }
-        });
-    }
-    saveScore() { 
-        if (['SURVIVAL', 'ENDLESS'].includes(this.gameMode)) {
-            let hs = parseInt(localStorage.getItem('lastDojoHighScore') || '0');
-            if (this.dayCount > hs) localStorage.setItem('lastDojoHighScore', this.dayCount.toString()); 
+
+    // =========================================
+    // SETUP
+    // =========================================
+    get ec() { return this.mode === 'ENDLESS' ? UI.endlessConfig : null; }
+    cfg(key, def) { return this.ec ? this.ec[key] : def; }
+    get dayLen() { return Math.round(DAY_LEN * this.cfg('phaseLen', 1)); }
+    get nightLen() { return Math.round(NIGHT_LEN * this.cfg('phaseLen', 1)); }
+    get bmFreq() { return this.ec ? Math.max(1, Math.round(this.ec.bmFreq)) : BLOOD_MOON_EVERY; }
+    isTouch() { return Input.isTouchDevice; }
+    showPlayer() { return ['PLAYING', 'SUNRISE', 'CHOICE', 'DYING'].includes(this.state); }
+
+    generateTrees() {
+        let s = 99;
+        const R = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+        this.trees = [];
+        const ok = (x, y, d) => this.trees.every(t => Math.hypot(t.x - x, (t.y - y) * 1.6) > d);
+        // a back row along the top edge frames the forest without hiding the fight
+        for (let x = 24; x < FOREST_END - 10; x += 62 + R() * 34) {
+            this.trees.push({ x, y: FEET_MIN + 2 + R() * 12, s: 0.8 + R() * 0.25, kind: R() < 0.35 ? 'cedar' : 'oak', v: (R() * 3) | 0, solid: true });
         }
+        // a handful of scattered trunks for boars to crash into
+        let tries = 0, placed = 0;
+        while (placed < 11 && tries++ < 3000) {
+            const x = 60 + R() * (FOREST_END - 120), y = FEET_MIN + 90 + R() * (FEET_MAX - FEET_MIN - 100);
+            if (x > 560 && Math.abs(y - 352) < 60) continue; // keep the path to the courtyard open
+            if (!ok(x, y, 165)) continue;
+            this.trees.push({ x, y, s: 0.7 + R() * 0.18, kind: R() < 0.3 ? 'cedar' : 'oak', v: (R() * 3) | 0, solid: true });
+            placed++;
+        }
+        // estate and sanctuary trees
+        const deco = [
+            { x: 1060, y: 160, kind: 'maple' }, { x: 1580, y: 158, kind: 'oak' }, { x: 1800, y: 165, kind: 'maple' },
+            { x: 960, y: 560, kind: 'oak' }, { x: 1750, y: 560, kind: 'maple' },
+            { x: 1985, y: 168, kind: 'sakura' }, { x: 2140, y: 160, kind: 'sakura' }, { x: 2400, y: 165, kind: 'sakura' },
+            { x: 2560, y: 230, kind: 'sakura' }, { x: 2010, y: 560, kind: 'sakura' }, { x: 2230, y: 566, kind: 'sakura' }
+        ];
+        deco.forEach((d, i) => this.trees.push({ ...d, s: 1.05, v: i, solid: false }));
+        this.trees.sort((a, b) => a.y - b.y);
     }
+
+    resetWorld() {
+        this.player = new Player(DOJO_DOOR.x - 20, DOJO_DOOR.y + 10);
+        this.enemies = []; this.loot = []; this.projectiles = []; this.corpses = [];
+        this.particles = []; this.texts = []; this.decals = []; this.pools = []; this.effects = []; this.caches = [];
+        this.combo = 0; this.comboTimer = 0; this.kills = 0;
+        this.shake = 0; this.hitStop = 0; this.dmgFlash = 0; this.cureFlash = 0; this.surgeFlash = 0; this.shrineGlow = 0;
+        this.sleepFade = 0; this.pendingChoice = 0; this.sanctFrac = 0;
+        this.announce = { text: '', sub: '', timer: 0, max: 1, blood: false };
+        this.hintQueue = []; this.hintText = ''; this.hintTimer = 0;
+        this.prompt = null;
+        this.isDay = true; this.isSiege = false; this.peaceful = false;
+        this.dayCount = 1; this.timeTimer = DAY_LEN; this.phaseLen = DAY_LEN;
+        this.stats = { eats: 0 };
+        this.lastVesselDay = 0;
+        this.pot = 0;              // meat in tonight's meal
+        this.extraTaken = 0;       // extra techniques bought in meditation this run (raises the price)
+        this.dawn = null;          // the open dawn meditation, if any
+        this.sleepTarget = 'dusk';
+        // cinematic and prologue controls (all off during normal play)
+        this.inputLocked = false; this.clockFrozen = false; this.kegareLocked = false;
+        this.noSiegeBoost = false; this.forceBlood = false; this.hideKegare = false;
+        this.camTarget = null; this.zoom = 1;
+        this.letterbox = 0; this.letterboxTarget = 0;
+        this.subtitle = null; this.objective = null; this.objectiveFlash = 0;
+        this.titleOverride = null; this.titleCard = null;
+        this.sliver = null; this.seals = [];
+        this.sealStone = { crack: 1, broken: true, pulse: 0 }; // broken ever since the prologue night
+    }
+
+    setupMenuScene() {
+        this.resetWorld();
+        this.isDay = false;
+        this.phaseLen = NIGHT_LEN; this.timeTimer = NIGHT_LEN * 0.5;
+        this.dojo.hp = this.dojo.maxHp = DOJO_HP;
+        this.camera.x = DOJO_DOOR.x - W / 2 + 120;
+    }
+
+    setupEvents() {
+        document.addEventListener('startGame', e => this.startRun(e.detail.mode));
+        document.addEventListener('startEpilogue', () => this.startEpilogue());
+        document.addEventListener('startPrologue', () => this.startPrologue(false));
+        document.addEventListener('skipPrologue', () => this.skipPrologue());
+        document.addEventListener('restartGame', () => this.startRun(this.mode));
+        document.addEventListener('quitToMenu', () => {
+            if (this.paused || ['GAMEOVER', 'VICTORY'].includes(this.state)) this.toMenu();
+        });
+        document.addEventListener('togglePause', () => this.togglePause());
+        document.addEventListener('requestCloseSettings', () => {
+            if (this.paused) UI.showPause(this.player, !!this.script); else UI.showMainMenu();
+        });
+        const confirm = () => {
+            if (this.script && this.script.cutscene && !this.paused) this.script.skip();
+            else if (this.state === 'EPILOGUE') this.advanceEpilogue();
+            else if (this.state === 'GAMEOVER' && performance.now() > this.readyAt) this.startRun(this.mode);
+        };
+        document.addEventListener('gameConfirm', confirm);
+        document.addEventListener('canvasClick', confirm);
+    }
+
+    // =========================================
+    // RUN FLOW
+    // =========================================
+    startRun(mode, carry = null) {
+        sfx.init();
+        if (mode === 'SURVIVAL' && !localStorage.getItem('lastDojoPrologueDone')) { this.startPrologue(true); return; }
+        this.mode = mode;
+        this.paused = false;
+        this.script = null;
+        this.resetWorld();
+        UI.hideAllMenus();
+        UI.showTouchUI();
+        Input.resetMovement(); Input.clearPresses();
+        localStorage.setItem('lastDojoPlayed', 'true');
+
+        this.dojo.maxHp = this.dojo.hp = this.ec ? this.ec.dojoHp : DOJO_HP;
+        this.phaseLen = this.timeTimer = this.dayLen;
+        this.camera.x = clamp(fx(this.player) - W / 2, 0, WORLD_W - W);
+        this.spawnDayContent();
+        if (carry) {
+            // the first run continues straight from the prologue
+            this.player.food = carry.food; this.player.essence = Math.min(2, carry.essence);
+            this.player.tech = { ...carry.tech };
+            // the prologue's hunt already used up the early morning
+            this.timeTimer = Math.round(this.dayLen * 0.75);
+        }
+        this.beginPlay();
+    }
+
+    // ---------- prologue ----------
+    startPrologue(thenRun) {
+        sfx.init();
+        this.mode = 'SURVIVAL';
+        this.paused = false;
+        this.resetWorld();
+        UI.hideAllMenus();
+        Input.resetMovement(); Input.clearPresses();
+        localStorage.setItem('lastDojoPlayed', 'true');
+        this.dojo.maxHp = this.dojo.hp = DOJO_HP;
+        this.state = 'PLAYING';
+        this.script = new Prologue(this, thenRun);
+    }
+
+    endPrologue(thenRun, skipped) {
+        localStorage.setItem('lastDojoPrologueDone', 'true');
+        // these lessons were taught by doing, so skip their text tips
+        for (const k of ['boar', 'cache', 'surge', 'sanct']) this.hintsSeen.add(k);
+        localStorage.setItem('lastDojoHints', JSON.stringify([...this.hintsSeen]));
+        const p = this.player;
+        const carry = skipped ? null : { food: p.food, essence: p.essence, tech: { ...p.tech } };
+        this.script = null;
+        if (thenRun) this.startRun('SURVIVAL', carry);
+        else this.toMenu();
+    }
+
+    skipPrologue() {
+        if (!this.script) return;
+        const thenRun = this.script.thenRun;
+        this.paused = false;
+        UI.hideAllMenus();
+        this.endPrologue(thenRun, true);
+    }
+
+    beginPlay() {
+        this.state = 'PLAYING';
+        UI.showTouchUI();
+        this.setAnnounce(`Day ${this.dayCount}`, 'Hunt by day. Fight by night.');
+        this.hint('start');
+        sfx.sfxBell();
+    }
+
+    startEpilogue() {
+        sfx.init(); sfx.sfxVictory();
+        UI.hideAllMenus();
+        this.setupMenuScene();
+        this.state = 'EPILOGUE'; this.epiIdx = 0; this.epiTimer = 220;
+    }
+    advanceEpilogue() {
+        this.epiIdx++; this.epiTimer = 220;
+        if (this.epiIdx >= EPILOGUE.length) this.toMenu();
+    }
+
+    toMenu() {
+        this.paused = false;
+        this.script = null;
+        this.state = 'START';
+        this.setupMenuScene();
+        UI.showMainMenu();
+    }
+
     togglePause() {
-        if (!['PLAYING', 'TUTORIAL', 'SUNRISE'].includes(this.state)) return;
+        if (this.state === 'EPILOGUE') { this.toMenu(); return; }
+        if (!['PLAYING', 'SUNRISE'].includes(this.state)) return;
         this.paused = !this.paused;
         if (this.paused) {
             Input.resetMovement();
-            if (this.player) { this.player.isMoving = false; this.player.isAttacking = false; this.player.isSpinning = false; }
-            UI.showPause();
+            UI.showPause(this.player, !!this.script);
         } else {
             UI.hideAllMenus();
-            UI.showTouchUI();
-        }
-    }
-    hasLineOfSight(x1, y1, x2, y2) {
-        if (this.currentRoom !== 'FOREST') return true;
-        let dist = Math.hypot(x2 - x1, y2 - y1);
-        let steps = Math.max(10, Math.floor(dist / 10)); 
-        
-        for (let t of this.forestTrees) {
-            let tx1 = t.x - 20 * t.s; let tx2 = t.x + 20 * t.s;
-            let ty1 = t.y - 50 * t.s; let ty2 = t.y + 5 * t.s; 
-            for(let i=1; i<steps; i++) {
-                let px = x1 + ((x2 - x1) * (i/steps)); let py = y1 + ((y2 - y1) * (i/steps));
-                if (px > tx1 && px < tx2 && py > ty1 && py < ty2) return false; 
-            }
-        }
-        return true; 
-    }
-    generateScenery() {
-        this.scenery = []; 
-        for (let i = 0; i < 400; i++) {
-            this.scenery.push({ 
-                x: Math.random() * this.worldWidth, 
-                y: 80 + Math.random() * (canvas.height - 120), 
-                type: Math.random() > 0.85 ? 'rock' : 'grass', 
-                r: Math.random() * 3 + 2, variant: Math.random() > 0.5 ? 1 : 2 
-            });
-        }
-        this.forestTrees = [];
-        for(let x = 0; x < this.worldWidth; x += 45) {
-            this.forestTrees.push({ x: x, y: 75 + Math.random() * 15, s: 1.0 + Math.random() * 0.4 });
-        }
-        for(let y = 80; y < canvas.height; y += 45) {
-            this.forestTrees.push({ x: 10 + Math.random() * 30, y: y, s: 1.0 + Math.random() * 0.4 });
-            this.forestTrees.push({ x: this.worldWidth - 40 + Math.random() * 30, y: y, s: 1.0 + Math.random() * 0.4 });
-        }
-        for(let i = 0; i < 25; i++) {
-            this.forestTrees.push({
-                x: 100 + Math.random() * (this.worldWidth - 200),
-                y: 100 + Math.random() * (canvas.height - 120),
-                s: 0.8 + Math.random() * 0.4
-            });
-        }
-        this.forestTrees.sort((a, b) => a.y - b.y);
-        this.sanctuaryFlora = [];
-        let fTypes = ['rose', 'sunflower', 'bluebell', 'lily', 'bush'];
-        for(let i=0; i<180; i++) {
-            this.sanctuaryFlora.push({
-                x: 1800 + Math.random() * (this.worldWidth - 1800),
-                y: 60 + Math.random() * (canvas.height - 60),
-                type: fTypes[Math.floor(Math.random() * fTypes.length)],
-                s: 0.5 + Math.random() * 0.8
-            });
-        }
-        this.mounds = [
-            new DirtMound(2000, 150),
-            new DirtMound(2150, 150),
-            new DirtMound(2300, 150)
-        ];
-    }
-    createParticle(x, y, color, room) {
-        let p = new Particle(x, y, color); p.room = room; this.particles.push(p);
-    }
-    createFloatText(x, y, text, color, room) {
-        let f = new FloatText(x, y, text, color); f.room = room; this.floatTexts.push(f);
-    }
-
-    dropLoot(x, y, type, room) {
-        let safeX = Math.max(20, Math.min(this.worldWidth - 40, x));
-        let safeY = Math.max(65, Math.min(canvas.height - 40, y));
-        let l = new Loot(safeX, safeY, type);
-        l.room = room;
-        this.loot.push(l);
-    }
-
-    resetEntities() {
-        this.player = new Player(1250, 260);
-        this.player.sanctuaryBurn = 0;
-        this.player.demonRushTimer = 0;
-        this.player.hasMomentum = false;
-        this.player.hasVampirism = false;
-        
-        this.currentRoom = 'HUB';
-        this.spinCooldown = 0; this.damageFlash = 0;
-        this.combo = 0; this.comboTimer = 0;
-
-        this.enemies = []; this.loot = []; this.particles = []; 
-        this.floatTexts = []; this.projectiles = []; this.corpses = []; this.damagePools = [];
-        this.camera.x = 738;
-    }
-    
-    spawnFish() {
-        let leftEdge = this.camera.x - 100;
-        let rightEdge = this.camera.x + canvas.width + 100;
-        let spawnX;
-        
-        if (leftEdge < 0) spawnX = rightEdge;
-        else if (rightEdge > this.worldWidth) spawnX = leftEdge;
-        else spawnX = Math.random() > 0.5 ? leftEdge : rightEdge;
-        
-        spawnX = Math.max(10, Math.min(this.worldWidth - 40, spawnX));
-
-        let spawnY = 220 + Math.random() * (canvas.height - 260);
-        let ax = 50 + Math.random() * (this.worldWidth - 100);
-        let ay = 220 + Math.random() * (canvas.height - 260);
-        
-        let f = new Zombie(spawnX, spawnY, 1, 3.8, 'fish', ax, ay, 30, true);
-        f.room = 'RIVER';
-        this.enemies.push(f);
-    }
-
-    spawnBoars() {
-        this.enemies = this.enemies.filter(z => z.type !== 'boar'); 
-        if (this.state === 'PLAYING') {
-            for(let i=0; i<3; i++) {
-                let bx = 100 + Math.random() * (this.worldWidth - 200);
-                let by = 80 + Math.random() * (canvas.height - 150);
-                let boar = new Zombie(bx, by, 70, 2.5, 'boar', bx, by, 50, true);
-                boar.room = 'FOREST';
-                this.enemies.push(boar);
-            }
+            if (!this.inputLocked) UI.showTouchUI();
+            Input.clearPresses();
         }
     }
 
-    rectIntersect(x1, y1, w1, h1, x2, y2, w2, h2) { return x1 < x2 + w2 && x1 + w1 > x2 && y1 < y2 + h2 && y1 + h1 > y2; }
-    
-    hasInfiniteStamina() {
-        if (this.gameMode === 'ENDLESS') { 
-            return this.isSiege ? UI.endlessConfig.infStamBM : UI.endlessConfig.infStamReg; 
-        }
-        return false; 
-    }
-    
-    changeRoom(newRoom) {
-        this.currentRoom = newRoom;
-        this.player.room = newRoom;
-        this.shake = 5; 
+    saveScore() {
+        const hs = parseInt(localStorage.getItem('lastDojoHighScore') || '0');
+        if (this.dayCount > hs) localStorage.setItem('lastDojoHighScore', String(this.dayCount));
     }
 
-    // PHASE 3: SLANTED SCALING LOGIC
-    spawnZombie(x = null, y = null, type = 'night', anchorX = 0, anchorY = 0) {
-        let isAlpha = type === 'alpha';
-        let isBrood = type === 'brood';
-        let actualType = type;
-        
-        let tier = Math.floor((this.dayCount - 1) / 7);
-        let intraWeekDay = Math.min((this.dayCount - 1) % 7, 3); // Ramps up on days 1-4, plateaus on days 5-7
-        
-        if (type === 'night' && this.state === 'PLAYING') {
-            let activeBrutes = this.enemies.filter(z => z.type === 'brute' && z.hp > 0).length;
-            let activeSpitters = this.enemies.filter(z => z.type === 'spitter' && z.hp > 0).length;
-            
-            if (tier >= 1 && Math.random() < 0.15 && activeBrutes < 1 + tier) actualType = 'brute';
-            else if (tier >= 2 && Math.random() < 0.15 && activeSpitters < tier) actualType = 'spitter';
+    // =========================================
+    // HELPERS: text, effects, hints
+    // =========================================
+    text(x, y, t, col, size = 16) { this.texts.push(new FloatText(x, y, t, col, size)); }
+    burst(x, y, col, n, o = {}) { for (let i = 0; i < n; i++) this.particles.push(new Particle(x, y, col, o)); }
+    setAnnounce(text, sub = '', blood = false, dur = 200) { this.announce = { text, sub, timer: dur, max: dur, blood }; }
+
+    keyLabel(action) {
+        if (Input.isTouchDevice) return { dash: 'DASH', unleash: 'RUSH', eat: 'EAT', interact: 'ACT', punch: 'PUNCH', spin: 'SPIN' }[action] || action;
+        return Input.getDisplayKey(Input.userKeys[action]);
+    }
+    hint(key) {
+        if (this.script) return;
+        if (this.hintsSeen.has(key) || this.hintQueue.includes(key) || this.hintText === HINTS[key]) return;
+        this.hintQueue.push(key);
+        if (this.hintQueue.length > 2) this.hintQueue.shift(); // newest tips are the relevant ones
+    }
+    updateHints() {
+        if (this.hintTimer > 0) { this.hintTimer--; return; }
+        // drop hints that no longer fit the moment (e.g. a forest tip queued just before nightfall)
+        const dayOnly = ['start', 'boar', 'cache', 'rest'], nightOnly = ['dusk', 'bloodmoon', 'essence'];
+        this.hintQueue = this.hintQueue.filter(k => !(dayOnly.includes(k) && !this.isDay) && !(nightOnly.includes(k) && this.isDay && k !== 'essence'));
+        if (this.hintQueue.includes('bloodmoon')) this.hintQueue = this.hintQueue.filter(k => k !== 'dusk');
+        if (this.hintQueue.length && this.state === 'PLAYING' && this.announce.timer <= 0) {
+            const key = this.hintQueue.shift();
+            this.hintsSeen.add(key);
+            localStorage.setItem('lastDojoHints', JSON.stringify([...this.hintsSeen]));
+            this.hintText = HINTS[key].replace(/\[(\w+)\]/g, (_, a) => `[${this.keyLabel(a.toLowerCase())}]`);
+            this.hintTimer = 420;
         }
-        
-        if (isAlpha) actualType = 'brute';
-        if (isBrood) actualType = 'spitter';
-        if (type === 'warlord') actualType = 'warlord';
-        
-        let size = (actualType === 'brute') ? 50 : (actualType === 'warlord' ? 80 : 40); 
-        let baseSpeed = (actualType === 'brute') ? 0.7 : (actualType === 'warlord' ? 1.2 : 1.2 + (Math.random() * 0.5));
-        
-        let spdMult = tier === 0 ? 1.0 : (tier === 1 ? 1.2 : 1.4);
-        let hpMult = tier === 0 ? 1.0 : (tier === 1 ? 1.5 : 2.5);
+    }
 
-        let moveSpeed = Math.min((baseSpeed * spdMult) + (intraWeekDay * 0.05), 4.0); 
-        if (this.isSiege && actualType !== 'brute' && actualType !== 'spitter' && actualType !== 'warlord') moveSpeed = Math.min(moveSpeed + 0.2, 4.0); 
-        
-        let hpPool = (actualType === 'brute') ? 120 : (actualType === 'spitter' ? 30 : 60);
-        
-        if (actualType === 'warlord') {
-            hpPool = (this.dayCount >= 21 && this.gameMode === 'SURVIVAL') ? 4000 : 2000;
-        } else if (isAlpha) {
-            hpPool = 1200;
-        } else if (isBrood) {
-            hpPool = 800;
-        } else if (this.gameMode === 'SURVIVAL') {
-            hpPool = Math.floor((hpPool * hpMult) + (intraWeekDay * (actualType === 'brute' ? 15 : 5)));
+    // =========================================
+    // MAIN UPDATE
+    // =========================================
+    update() {
+        this.frames++;
+        this.renderer.updateAmbient();
+
+        if (this.state === 'EPILOGUE') { if (--this.epiTimer <= 0) this.advanceEpilogue(); return; }
+        if (this.state === 'START') { this.camera.x = DOJO_DOOR.x - W / 2 + 120 + Math.sin(this.frames * 0.002) * 260; this.updateEffects(); return; }
+        if (this.state === 'DYING') {
+            this.updateEffects();
+            if (--this.deathTimer <= 0) this.finishGameOver();
+            return;
         }
+        if (!['PLAYING', 'SUNRISE'].includes(this.state)) return;
 
-        if (this.gameMode === 'ENDLESS') {
-            if (actualType === 'warlord' || isAlpha || isBrood) { 
-                hpPool = Math.floor(hpPool * UI.endlessConfig.bHealth); 
-                moveSpeed *= UI.endlessConfig.bSpeed; 
-                size *= UI.endlessConfig.bossSize;
-            }
-            else { 
-                hpPool = Math.floor(hpPool * UI.endlessConfig.zHealth); 
-                moveSpeed *= UI.endlessConfig.zSpeed; 
-            }
+        if (this.sleepFade > 0) {
+            this.sleepFade--;
+            if (this.sleepFade === 40) { if (this.sleepTarget === 'dawn') this.endNight(); else this.startNight(); }
+            return;
         }
+        if (this.hitStop > 0) { this.hitStop--; this.updateCinema(); return; }
 
-        let spawnX, spawnY;
-        let maxRight = this.currentRoom === 'HUB' ? 1650 : this.worldWidth; 
+        if (this.script) {
+            this.script.update();
+            if (!this.script || this.state !== 'PLAYING') return; // the prologue may have just ended
+        }
+        this.updateTimers();
+        this.updateCinema();
+        this.updatePhase();
+        if (this.state === 'CHOICE') return;
+        this.updatePlayer();
+        this.updateProjectiles();
+        this.updateEnemies();
+        this.updateLoot();
+        this.updatePools();
+        this.updateEffects();
+        this.updateCamera();
+        this.updateHints();
+        this.checkEnd();
+    }
 
-        if (x !== null && y !== null) {
-            spawnX = Math.max(0, Math.min(maxRight, x));
-            spawnY = y;
+    updateTimers() {
+        if (this.comboTimer > 0 && --this.comboTimer <= 0) this.combo = 0;
+        if (this.shake > 0) { this.shake *= 0.88; if (this.shake < 0.4) this.shake = 0; }
+        for (const k of ['dmgFlash', 'cureFlash', 'surgeFlash', 'shrineGlow']) if (this[k] > 0) this[k]--;
+        if (this.announce.timer > 0) this.announce.timer--;
+        for (const k of this.caches) if (k.hitTimer > 0) k.hitTimer--;
+    }
+
+    updateCamera() {
+        const p = this.player;
+        if (this.camTarget) {
+            this.camera.x += (this.camTarget.x - this.camera.x) * 0.06;
+            this.zoom += (this.camTarget.zoom - this.zoom) * 0.05;
         } else {
-            let validSpawn = false;
-            let attempts = 0;
-            
-            while (!validSpawn && attempts < 10) {
-                let edge = Math.floor(Math.random() * 3); 
-                let leftEdge = this.camera.x - 80; 
-
-                if (edge === 0 && leftEdge >= -100) { 
-                    spawnX = leftEdge;
-                    spawnY = 80 + Math.random() * (canvas.height - 150);
-                } else if (edge === 1) { 
-                    spawnX = Math.max(0, Math.random() * maxRight);
-                    spawnY = 65; 
-                } else { 
-                    spawnX = Math.max(0, Math.random() * maxRight);
-                    spawnY = canvas.height - size - 5; 
-                }
-                
-                spawnX = Math.min(maxRight, spawnX); 
-
-                if (Math.hypot(spawnX - this.player.x, spawnY - this.player.y) > 250) {
-                    validSpawn = true;
-                }
-                attempts++;
-            }
-            if (!validSpawn) {
-                spawnX = this.camera.x - 80; 
-                spawnY = 80 + Math.random() * (canvas.height - 150);
-            }
+            const target = fx(p) - W / 2 + (p.facingRight ? 60 : -60);
+            this.camera.x += (target - this.camera.x) * 0.09;
+            this.zoom += (1 - this.zoom) * 0.08;
         }
-
-        if ((actualType === 'warlord' || isAlpha || isBrood) && x === null) {
-            spawnX = this.camera.x + canvas.width - 150;
-            spawnY = Math.max(100, Math.min(canvas.height - 120, this.player.y - 40));
-            let d = new Decal(spawnX + size/2, spawnY + size, '#111', 2.0);
-            d.room = this.currentRoom;
-            this.decals.push(d); 
-        }
-
-        let initialFacingRight = spawnX < this.player.x;
-        let ax = anchorX === 0 ? (50 + Math.random() * Math.min(1500, this.worldWidth - 100)) : anchorX;
-        let ay = anchorY === 0 ? (80 + Math.random() * (canvas.height - 150)) : anchorY;
-
-        let z = new Zombie(spawnX, spawnY, hpPool, moveSpeed, actualType, ax, ay, size, initialFacingRight);
-        
-        if (isAlpha) {
-            z.isAlpha = true;
-            z.w = 60; z.h = 60; 
-        }
-        if (isBrood) {
-            z.isBrood = true;
-            z.w = 50; z.h = 50;
-            z.speed = 1.8; 
-        }
-
-        z.room = this.currentRoom;
-        this.enemies.push(z);
-    }
-    
-    doAttack(isSpin) {
-        let stamCost = isSpin ? this.player.specialCost : this.player.attackCost;
-        if (this.gameMode === 'ENDLESS') stamCost *= UI.endlessConfig.stamDrain;
-        
-        let hasInf = this.hasInfiniteStamina() || (this.player.demonRushTimer > 0);
-        if (this.player.stamina < stamCost && !hasInf) return;
-        
-        if (isSpin) this.spinCooldown = this.gameMode === 'ENDLESS' ? Math.floor(60 * UI.endlessConfig.spinCd) : 60; 
-        this.player.isAttacking = true; this.player.isSpinning = isSpin; this.player.attackTimer = isSpin ? 20 : 15; sfx.sfxSwing();
-        if (!hasInf) this.player.stamina -= stamCost;
-        if (this.state === 'TUTORIAL') { if (this.tutPhase === 9 && isSpin) { this.tutPhase = 10; this.tutTimer = 60; sfx.sfxLore(); } }
-
-        let bmMult = this.isSiege ? 2 : 1; 
-        let hitbox = isSpin ? { x: this.player.x - (40*bmMult), y: this.player.y - (20*bmMult), w: 120*bmMult, h: 80*bmMult } 
-                            : { x: this.player.facingRight ? this.player.x + 30 : this.player.x - 30, y: this.player.y - 10, w: 40, h: 60 };
-        
-        if (isSpin) { 
-            for(let i=0; i<20; i++) this.createParticle(this.player.x+20, this.player.y+20, '#fff', this.currentRoom); 
-            this.shake = 8; 
-        }
-        
-        let pDmg = (isSpin ? 30 : this.player.dmg) * (this.isSiege ? 3 : 1);
-        let pKb = (isSpin ? 60 : 20) * (this.isSiege ? 3 : 1);
-        
-        this.processHits(hitbox, pDmg, pKb, isSpin); 
+        this.camera.x = clamp(this.camera.x, 0, WORLD_W - W);
     }
 
-    processHits(hitbox, damage, knockbackDist, isSpin = false) {
-        let originX = this.player.x;
+    updateCinema() {
+        this.letterbox += (this.letterboxTarget - this.letterbox) * 0.12;
+        if (this.subtitle && --this.subtitle.timer <= 0) this.subtitle = null;
+        if (this.objectiveFlash > 0) this.objectiveFlash--;
+        if (this.titleCard && --this.titleCard.timer <= 0) this.titleCard = null;
+        if (this.sealStone.pulse > 0) this.sealStone.pulse--;
+        if (this.sliver) {
+            this.sliver.trail.push({ x: this.sliver.x, y: this.sliver.y });
+            if (this.sliver.trail.length > 20) this.sliver.trail.shift();
+            if (this.frames % 2 === 0) this.burst(this.sliver.x, this.sliver.y, '#1e0b26', 1, { speed: 1, shape: 'smoke', grav: -0.03, size: 7, life: 30 });
+        }
+    }
 
-        if (['PLAYING', 'TUTORIAL', 'SUNRISE'].includes(this.state) || (this.state === 'TUTORIAL' && this.tutPhase >= 7)) {
-            if (this.currentRoom === 'HUB' && this.rectIntersect(hitbox.x, hitbox.y, hitbox.w, hitbox.h, this.dummy.x, this.dummy.y, 40, 40)) {
-                this.dummy.hits++; 
-                
-                for(let i=0; i<5; i++) this.createParticle(this.dummy.x+20, this.dummy.y+20, '#d2b48c', 'HUB'); 
-                this.shake = Math.max(this.shake, 2); sfx.sfxHit();
-                
-                if (this.dummy.hits >= this.dummy.hitsNeeded) {
-                    this.dummy.hits = 0; this.dummy.level++; this.dummy.hitsNeeded = Math.floor(this.dummy.hitsNeeded * 1.5); 
-                    this.player.maxStamina += 15; this.player.stamina = this.player.maxStamina;
-                    this.player.dmg += 2;
-                    for(let i=0; i<30; i++) this.createParticle(originX+20, this.player.y+20, '#ffcc00', 'HUB'); 
-                    this.createFloatText(originX+20, this.player.y-20, "STAMINA & DMG UP!", "#ffcc00", 'HUB'); 
-                    this.shake = 10; sfx.sfxLevelUp();
-                    if (this.state === 'TUTORIAL' && this.tutPhase === 8) { this.tutPhase = 9; this.tutTimer = 60; sfx.sfxLore(); }
-                }
+    // =========================================
+    // DAY / NIGHT
+    // =========================================
+    updatePhase() {
+        if (this.state === 'SUNRISE') { this.updateSunrise(); return; }
+
+        if (this.clockFrozen) return; // the prologue drives time itself
+        if (this.pendingChoice > 0 && --this.pendingChoice === 0) { this.openChoice(); return; }
+
+        this.timeTimer--;
+        if (this.isDay) {
+            const boars = this.enemies.filter(e => e.type === 'boar' && !e.dead).length;
+            if (boars < 2 && Math.random() < 0.003) this.spawnBoar(true);
+            if (this.timeTimer === 600) this.text(fx(this.player), this.player.y - 30, 'Dusk is coming', '#ffb36b', 15);
+            if (this.timeTimer <= 0) this.startNight();
+        } else {
+            this.updateNightSpawns();
+            if (this.timeTimer === 600 && this.player.essence > 0 && this.state === 'PLAYING') {
+                this.text(fx(this.player), this.player.y - 30, 'Dawn is near. Your essence will burn.', '#d6b4f0', 15);
+                this.hint('dawnburn');
             }
+            if (this.timeTimer <= 0) this.endNight();
         }
 
-        this.enemies.forEach(z => {
-            if (z.room !== this.currentRoom || z.spawnTimer > 0 || z.isCasting > 0) return; 
-            if (this.rectIntersect(hitbox.x, hitbox.y, hitbox.w, hitbox.h, z.x, z.y, z.w, z.h)) {
-                
-                this.combo++; 
-                this.comboTimer = 180;
-                
-                let isBoar = z.type === 'boar';
-                let comboMult = this.combo >= 25 ? 1.5 : (this.combo >= 10 ? 1.2 : 1.0);
-                let actualDamage = Math.ceil(damage * comboMult);
+        // Kegare creeps on its own; a blood moon makes it stir faster
+        const rate = KEGARE.passivePerFrame * Math.pow(0.6, this.player.t('calm')) * (this.isSiege && !this.peaceful ? 2 : 1);
+        this.addInfection(rate, 'passive');
+    }
 
-                if (isBoar && z.state !== 'stunned' && z.state !== 'flee') {
-                    actualDamage = Math.ceil(actualDamage * 0.15); 
-                    z.hp -= actualDamage;
-                } else {
-                    z.hp -= actualDamage;
-                    if (isBoar && z.state === 'stunned') z.playerDamagedDuringStun = true; 
-                }
-                
-                // PHASE 3 VAMPIRISM PERK 
-                if (this.player.hasVampirism && this.combo >= 15 && actualDamage > 0) {
-                    this.player.hp = Math.min(this.player.maxHp, this.player.hp + 1);
-                    if (Math.random() < 0.2) this.createParticle(originX+20, this.player.y+20, '#ff1744', this.currentRoom);
-                }
-                
-                z.hitTimer = 4; sfx.sfxHit();
-                
-                if (!isBoar && z.type !== 'fish') z.aggroTarget = this.player; 
-                
-                // No more generic siege aggro during peaceful night
-                if (this.isSiege && !this.peacefulNight && z.type !== 'spitter' && z.type !== 'warlord' && !z.isBrood && z.type !== 'fish') { z.aggroTimer = 480; }
-                
-                if (this.gameMode === 'ENDLESS' && UI.endlessConfig.lifesteal > 0 && z.hp > 0 && z.type !== 'fish') {
-                    this.player.hp = Math.min(this.player.maxHp, this.player.hp + UI.endlessConfig.lifesteal);
-                }
+    startNight() {
+        this.isDay = false;
+        this.phaseLen = this.timeTimer = this.nightLen;
+        this.eatMeal();
+        for (const e of this.enemies) {
+            if (e.type === 'boar') e.state = 'flee';
+            if (e.shade) e.shade = false;
+        }
+        const bloodMoon = this.dayCount % this.bmFreq === 0;
+        if (bloodMoon) {
+            this.isSiege = true;
+            this.dojo.hp = this.dojo.maxHp;
+            const bosses = this.pickBosses();
+            const subs = { alpha: 'The Alpha awakens.', brood: 'The Broodmother rises.', warlord: 'Magatsuhi takes a body.' };
+            let sub = subs[bosses[0]];
+            if (!this.ec && this.dayCount >= SURVIVAL_DAYS) sub = '"Fine. I will tear it down myself."';
+            this.setAnnounce('Blood Moon', sub, true, 260);
+            bosses.forEach((b, i) => this.spawnBoss(b, i));
+            sfx.sfxWarlordRoar(); this.shake = 18;
+            this.hint('bloodmoon');
+        } else {
+            this.setAnnounce(`Night ${this.dayCount}`, 'The dead are rising.');
+            sfx.sfxBell();
+            this.hint('dusk');
+        }
+    }
 
-                let direction = (z.x + (z.w/2)) > (originX + 20) ? 1 : -1;
-                let actualKnockback = z.type === 'brute' ? knockbackDist / 4 : (this.isSiege ? knockbackDist * 2 : knockbackDist);
-                if (z.type === 'warlord') actualKnockback = knockbackDist / 6; 
-                if (z.isAlpha) actualKnockback = isSpin ? knockbackDist / 6 : 0; // Alpha Brute Immunity
-                
-                if (this.gameMode === 'ENDLESS') actualKnockback *= UI.endlessConfig.knockback;
-
-                if (isBoar && (z.state === 'windup' || z.state === 'charge' || z.state === 'flee' || z.state !== 'stunned')) {
-                    actualKnockback = 0; 
-                }
-
-                z.x += direction * actualKnockback; 
-                
-                let yMax = (this.currentRoom === 'RIVER' && z.type !== 'fish') ? 160 : canvas.height - z.h - 5;
-                let yMin = (z.type === 'fish') ? 200 : 65;
-                z.y = Math.max(yMin, Math.min(yMax, z.y));
-                
-                let isFleeingBoar = (isBoar && z.state === 'flee');
-                if (!isFleeingBoar) {
-                    z.x = Math.max(0, Math.min(this.worldWidth - z.w, z.x));
-                }
-
-                let pColor = z.type === 'spitter' ? '#cddc39' : (isBoar ? '#795548' : (z.type === 'fish' ? '#00e5ff' : '#d32f2f'));
-                for(let i=0; i<8; i++) this.createParticle(z.x+20, z.y+20, pColor, this.currentRoom); 
-                
-                let dmgColor = comboMult >= 1.5 ? "#ff1744" : (comboMult >= 1.2 ? "#ffea00" : "#fff");
-                this.createFloatText(z.x+20, z.y, `-${actualDamage}`, dmgColor, this.currentRoom); 
-                
-                this.shake = Math.max(this.shake, z.type === 'brute' ? 8 : (z.type === 'warlord' ? 12 : 4)); 
-                
-                if (z.hp <= 0 && !z.handledDeath) {
-                    z.handledDeath = true; 
-                    
-                    if (z.type === 'fish') {
-                        this.dropLoot(z.x, z.y, 'food', this.currentRoom);
-                        this.createFloatText(z.x+10, z.y, "CATCH!", "#00e5ff", this.currentRoom);
-                    }
-                    else if (isBoar) {
-                        for(let i=0; i<2; i++) {
-                            this.dropLoot(z.x + (Math.random()*20-10), z.y + (Math.random()*20-10), 'food', this.currentRoom);
-                        }
-                        this.createFloatText(Math.max(10, Math.min(this.worldWidth-40, z.x))+20, z.y, "HUNTED!", "#ffcc00", this.currentRoom);
-                    }
-                    else if (z.isAlpha) {
-                        this.dropLoot(z.x, z.y, 'orb_momentum', this.currentRoom);
-                        this.createFloatText(z.x+20, z.y, "ALPHA SLAIN!", "#00e5ff", this.currentRoom);
-                        this.shake = 20; sfx.sfxExplode();
-                        this.peacefulNight = true; this.isSiege = false;
-                        this.createFloatText(this.player.x+20, this.player.y-60, "THE HORDE SCATTERS...", "#ffeb3b", this.currentRoom);
-                        this.enemies.forEach(ez => { 
-                            if (ez !== z && ez.type !== 'boar' && ez.type !== 'fish') { 
-                                ez.hp = 0; 
-                                for(let i=0; i<10; i++) this.createParticle(ez.x+20, ez.y+20, '#555', this.currentRoom);
-                            } 
-                        });
-                    }
-                    else if (z.isBrood) {
-                        this.dropLoot(z.x, z.y, 'orb_vampirism', this.currentRoom);
-                        this.createFloatText(z.x+20, z.y, "BROODMOTHER SLAIN!", "#ff1744", this.currentRoom);
-                        this.shake = 20; sfx.sfxExplode();
-                        this.peacefulNight = true; this.isSiege = false;
-                        this.createFloatText(this.player.x+20, this.player.y-60, "THE HORDE SCATTERS...", "#ffeb3b", this.currentRoom);
-                        this.enemies.forEach(ez => { 
-                            if (ez !== z && ez.type !== 'boar' && ez.type !== 'fish') { 
-                                ez.hp = 0; 
-                                for(let i=0; i<10; i++) this.createParticle(ez.x+20, ez.y+20, '#555', this.currentRoom);
-                            } 
-                        });
-                    }
-                    else if (z.type === 'warlord') { 
-                        this.shake = 30; sfx.sfxExplode(); 
-                        for(let i=0; i<100; i++) this.createParticle(z.x+40, z.y+40, '#d32f2f', this.currentRoom); 
-                        
-                        if (this.gameMode === 'SURVIVAL' && this.dayCount === 21 && this.isSiege && this.state === 'PLAYING') {
-                            this.triggerSunrise();
-                        } else if (this.gameMode === 'ENDLESS') {
-                            for(let i=0; i<5; i++) {
-                                this.dropLoot(z.x + (Math.random()*60-30), z.y + (Math.random()*60-30), 'food', this.currentRoom);
-                                this.dropLoot(z.x + (Math.random()*60-30), z.y + (Math.random()*60-30), 'bandage', this.currentRoom);
-                            }
-                            this.createFloatText(z.x+40, z.y, "BOSS DEFEATED!", "#ffcc00", this.currentRoom);
-                            this.peacefulNight = true; this.isSiege = false;
-                            this.createFloatText(this.player.x+20, this.player.y-60, "THE HORDE SCATTERS...", "#ffeb3b", this.currentRoom);
-                            this.enemies.forEach(ez => { 
-                                if (ez !== z && ez.type !== 'boar' && ez.type !== 'fish') { 
-                                    ez.hp = 0; 
-                                    for(let i=0; i<10; i++) this.createParticle(ez.x+20, ez.y+20, '#555', this.currentRoom);
-                                } 
-                            });
-                        }
-                    } else {
-                        let c = new Corpse(z, direction);
-                        c.room = this.currentRoom;
-                        this.corpses.push(c); 
-                        
-                        let dCol = z.type === 'spitter' ? 'rgba(150, 200, 0, 0.4)' : 'rgba(120, 0, 0, 0.5)';
-                        let d = new Decal(z.x + z.w/2, z.y + z.h, dCol, z.type === 'brute' ? 1.5 : 1.0);
-                        d.room = this.currentRoom;
-                        this.decals.push(d);
-                        
-                        if (this.gameMode === 'ENDLESS' && UI.endlessConfig.explodeZ) {
-                            let dp = new DamagePool(z.x, z.y, 240); dp.room = this.currentRoom;
-                            this.damagePools.push(dp);
-                            for(let i=0; i<20; i++) this.createParticle(z.x+20, z.y+20, '#cddc39', this.currentRoom); 
-                            sfx.sfxExplode();
-                        }
-                        
-                        if (this.state === 'PLAYING' && Math.random() < 0.25) {
-                            this.dropLoot(z.x, z.y, 'blood', this.currentRoom);
-                        }
-                    }
-
-                    if (z.burning && actualDamage >= 30 && !isBoar && z.type !== 'fish') {
-                        for(let i=0; i<40; i++) this.createParticle(z.x+20, z.y+20, '#ff9900', this.currentRoom); 
-                        this.createFloatText(z.x+20, z.y-10, "COMBUSTION!", "#ff9900", this.currentRoom); 
-                        this.shake = Math.max(this.shake, 15); sfx.sfxExplode();
-                        let d2 = new Decal(z.x + z.w/2, z.y + z.h, 'rgba(20, 20, 20, 0.6)', 2.0);
-                        d2.room = this.currentRoom;
-                        this.decals.push(d2); 
-                        
-                        this.enemies.forEach(ez => { 
-                            if (ez.room === this.currentRoom && ez !== z && Math.hypot(ez.x - z.x, ez.y - z.y) < 120) { 
-                                ez.hp -= 50; ez.burning = true; this.createFloatText(ez.x+20, ez.y, "-50", "#ff9900", this.currentRoom); 
-                            } 
-                        });
-                    }
-                    
-                    if (!isBoar && z.type !== 'fish') {
-                        let dropChance = this.gameMode === 'ENDLESS' ? UI.endlessConfig.bandageDrop : 0.10;
-                        if (this.player.hp < this.player.maxHp * 0.3 && this.gameMode !== 'ENDLESS') dropChance = 0.25; 
-                        
-                        if (this.combo >= 25) dropChance *= 1.5;
-
-                        if (Math.random() < dropChance) {
-                            this.dropLoot(z.x, z.y, 'bandage', this.currentRoom);
-                        }
-                    }
-                }
-            }
-        });
+    endNight() {
+        if (!this.ec && this.dayCount >= SURVIVAL_DAYS) { this.triggerSunrise(); return; }
+        this.dayCount++;
+        this.isDay = true; this.isSiege = false; this.peaceful = false;
+        this.phaseLen = this.timeTimer = this.dayLen;
+        this.setAnnounce(`Day ${this.dayCount}`, 'The dead burn in the sunlight.');
+        sfx.sfxBell();
+        this.endMeal();
+        // the dead caught in the forest hide under the canopy; the rest burn
+        let shades = this.enemies.filter(e => e.shade && !e.dead).length, hid = 0;
+        for (const e of this.enemies) {
+            if (e.type === 'boar' || e.dead) continue;
+            const canHide = !e.isBoss && ['walker', 'runner', 'brute'].includes(e.type) && e.spawnTimer <= 0;
+            if (canHide && fx(e) < FOREST_END - 30 && shades < 8) {
+                e.shade = true; e.anchorX = fx(e); e.anchorY = fy(e);
+                e.aggroTimer = 0; e.grudge = null; e.attackWind = 0;
+                shades++; hid++;
+            } else e.burning = true;
+        }
+        if (hid) this.hint('forestdawn');
+        this.projectiles = [];
+        this.pools = this.pools.filter(p => p.kind === 'lava');
+        if (this.ec && this.ec.lavaMode) {
+            let x, y, n = 0;
+            do { x = 60 + Math.random() * (WORLD_W - 120); y = FEET_MIN + 20 + Math.random() * (FEET_MAX - FEET_MIN - 40); }
+            while (dist(x, y, DOJO_DOOR.x, DOJO_DOOR.y) < 160 && ++n < 20);
+            this.pools.push(new Pool(x, y, 'lava', 1));
+            const lava = this.pools.filter(p => p.kind === 'lava');
+            if (lava.length > 30) this.pools.splice(this.pools.indexOf(lava[0]), 1);
+        }
+        if (this.ec && this.ec.dojoRegen) this.dojo.hp = Math.min(this.dojo.maxHp, this.dojo.hp + this.dojo.maxHp * 0.25);
+        this.spawnDayContent();
+        this.pendingChoice = 100;
     }
 
     triggerSunrise() {
-        this.state = 'SUNRISE'; this.sunriseTimer = 300; this.announceTimer = 300;
-        this.announceText = "SUNRISE"; this.subAnnounceText = "The Warlord burns!";
-        this.enemies.forEach(z => { if(z.type !== 'boar' && z.type !== 'fish') z.burning = true; });
-        localStorage.setItem('lastDojoEndlessUnlocked', 'true'); localStorage.setItem('lastDojoEpilogueUnlocked', 'true');
+        this.state = 'SUNRISE';
+        this.sunriseTimer = 300;
+        this.isDay = true;
+        this.setAnnounce('Sunrise', "Magatsuhi's vessel burns.", false, 280);
+        for (const e of this.enemies) if (e.type !== 'boar') e.burning = true;
+        localStorage.setItem('lastDojoEndlessUnlocked', 'true');
+        localStorage.setItem('lastDojoEpilogueUnlocked', 'true');
+        sfx.sfxBell();
     }
 
-    startEpilogue() { sfx.sfxVictory(); this.state = 'EPILOGUE'; this.epiPhase = 0; this.epiTimer = 150; }
-
-    startRun(mode) {
-        sfx.init(); 
-        this.gameMode = mode; 
-        
-        UI.hideAllMenus();
-        UI.showTouchUI();
-        localStorage.setItem('lastDojoPlayed', 'true'); 
-        
-        this.timeTimer = 5400; this.isDay = true; this.dayCount = 1; this.food = 0; this.sleepFade = 0;
-        this.isSiege = false; this.peacefulNight = false; this.shake = 0; this.paused = false; this.announceTimer = 0; this.hitStop = 0;
-        this.subAnnounceText = ""; this.spinCooldown = 0; this.damageFlash = 0;
-        this.dojo.hp = this.gameMode === 'ENDLESS' ? UI.endlessConfig.dojoHp : 300; 
-        this.dojo.maxHp = this.dojo.hp; this.dummy.hits = 0; this.dummy.level = 1; this.dummy.hitsNeeded = 15;
-        this.frames = 0; 
-        
-        this.combo = 0; this.comboTimer = 0;
-
-        this.generateScenery(); 
-        this.resetEntities();
-        
-        this.phaseDur = this.gameMode === 'ENDLESS' ? 5400 * UI.endlessConfig.phaseLen : 5400;
-        this.timeTimer = this.phaseDur;
-
-        this.state = 'PLAYING'; 
-        this.spawnBoars();
+    updateSunrise() {
+        this.sunriseTimer--;
+        for (const e of this.enemies) {
+            if (e.type !== 'warlord' || e.dead) continue;
+            e.burning = true;
+            if (this.sunriseTimer > 50 && this.sunriseTimer % 15 === 0) {
+                this.shake = 8; sfx.sfxExplode();
+                this.burst(e.x + Math.random() * e.w, e.y + Math.random() * e.h, '#ff9900', 30, { speed: 6 });
+            } else if (this.sunriseTimer === 50) {
+                e.dead = true;
+                this.burst(fx(e), e.y + e.h / 2, '#ff9900', 120, { speed: 9 });
+                this.burst(fx(e), e.y + e.h / 2, '#2a2a2a', 60, { speed: 4, shape: 'smoke', grav: -0.05, size: 8 });
+                this.shake = 30; sfx.sfxExplode();
+            }
+        }
+        if (this.sunriseTimer <= 0) {
+            this.state = 'VICTORY';
+            this.saveScore();
+            sfx.sfxVictory();
+            UI.showVictory(this.kills, Object.values(this.player.tech).reduce((a, b) => a + b, 0));
+        }
     }
 
-    startTutorial() {
-        sfx.init(); 
-        this.gameMode = 'TUTORIAL';
+    // ---------- dawn technique choice ----------
+    // One card from each group (attack, survival, utility); extra cards come from anywhere.
+    rollTechniques(n, exclude = []) {
+        const p = this.player;
+        const avail = TECHNIQUES.filter(t => p.t(t.id) < t.max && !exclude.includes(t.id));
+        const pick = list => list[Math.floor(Math.random() * list.length)];
+        const out = [];
+        for (const g of TECH_GROUPS) {
+            if (out.length >= n) break;
+            const pool = avail.filter(t => t.group === g);
+            if (pool.length) out.push(pick(pool));
+        }
+        while (out.length < n) {
+            const pool = avail.filter(t => !out.includes(t));
+            if (!pool.length) break;
+            out.push(pick(pool));
+        }
+        return out;
+    }
+    meditateCosts() {
+        return { reroll: MEDITATE.reroll, fourth: MEDITATE.fourth, extra: MEDITATE.extraBase + MEDITATE.extraStep * this.extraTaken };
+    }
+    openChoice(custom = null) {
+        const opts = custom || this.rollTechniques(3);
+        if (!opts.length) { this.burnEssence(); return; }
+        // the prologue's first dawn is a fixed choice with no meditation
+        this.dawn = { options: opts, picksLeft: 1, fourthUsed: false, shop: !custom && !this.script, picked: 0 };
+        this.announce.timer = 0; // don't let the "Day N" banner show through the meditation screen
+        this.state = 'CHOICE';
+        Input.resetMovement();
+        UI.hideTouchUI();
+        this.showDawn();
+    }
+    showDawn() {
+        UI.showChoice(this.dayCount, this.dawn, this.player, this.meditateCosts(), {
+            pick: id => this.pickTechnique(id),
+            act: a => this.meditate(a)
+        });
+    }
+    meditate(action) {
+        const p = this.player, d = this.dawn;
+        if (!d || !d.shop) return;
+        const c = this.meditateCosts();
+        if (action === 'reroll' && p.essence >= c.reroll) {
+            // a reroll shows new cards whenever enough techniques remain
+            let fresh = this.rollTechniques(d.options.length, d.options.map(t => t.id));
+            if (fresh.length < d.options.length) fresh = this.rollTechniques(d.options.length);
+            if (!fresh.length) return;
+            p.essence -= c.reroll; d.options = fresh;
+        } else if (action === 'fourth' && !d.fourthUsed && p.essence >= c.fourth) {
+            const extra = this.rollTechniques(1, d.options.map(t => t.id));
+            if (!extra.length) return;
+            p.essence -= c.fourth; d.options = [...d.options, ...extra]; d.fourthUsed = true;
+        } else if (action === 'extra' && p.essence >= c.extra) {
+            p.essence -= c.extra; d.picksLeft++; this.extraTaken++;
+        } else { sfx.sfxDenied(); return; }
+        sfx.sfxEssence();
+        this.showDawn();
+    }
+    pickTechnique(id) {
+        const p = this.player, d = this.dawn;
+        p.tech[id] = p.t(id) + 1;
+        if (id === 'wind') { p.maxStamina += 25; p.stamina = p.maxStamina; }
+        if (id === 'skin') { p.maxHp += 25; p.hp = Math.min(p.maxHp, p.hp + 25); }
+        const tdef = TECHNIQUES.find(t => t.id === id);
+        sfx.sfxLevelUp();
+        this.text(fx(p), p.y - 30 - (d ? d.picked * 20 : 0), tdef.name, '#ffd77a', 18);
+        this.burst(fx(p), p.y + 20, '#ffd77a', 24, { speed: 5 });
+        if (d) {
+            d.picked++; d.picksLeft--;
+            if (d.picksLeft > 0) {
+                const next = this.rollTechniques(d.fourthUsed ? 4 : 3);
+                if (next.length) { d.options = next; this.showDawn(); return; }
+            }
+        }
+        this.dawn = null;
+        this.burnEssence();
+        this.state = 'PLAYING';
         UI.hideAllMenus(); UI.showTouchUI();
-        localStorage.setItem('lastDojoPlayed', 'true'); 
-        
-        this.isDay = true; this.food = 0; this.sleepFade = 0; this.isSiege = false; this.peacefulNight = false; this.shake = 0; this.paused = false; this.hitStop = 0;
-        this.subAnnounceText = ""; this.spinCooldown = 0; this.damageFlash = 0;
-        this.dojo.hp = 300; this.dojo.maxHp = 300; this.dummy.hits = 0;
-        this.frames = 0; 
-        
-        this.combo = 0; this.comboTimer = 0;
-
-        this.generateScenery(); this.resetEntities();
-        this.state = 'TUTORIAL'; this.tutPhase = 0; this.tutTimer = 180;
-        this.player.hp = 1000; this.player.maxHp = 1000; this.player.stamina = 100; this.player.fatigue = 0;
-        this.dummy.hitsNeeded = 5; 
+        Input.clearPresses();
     }
-
-    restartGame() { 
-        if (this.state === 'VICTORY') this.startRun('SURVIVAL'); 
-        else if (this.gameMode === 'TUTORIAL') this.startTutorial(); 
-        else this.startRun(this.gameMode); 
-    }
-
-    updateTutorialLogic() {
-        if (this.tutTimer > 0) this.tutTimer--;
-        let kU = Input.getDisplayKey(Input.userKeys.up); let kL = Input.getDisplayKey(Input.userKeys.left); let kD = Input.getDisplayKey(Input.userKeys.down); let kR = Input.getDisplayKey(Input.userKeys.right);
-        let kP = Input.getDisplayKey(Input.userKeys.punch); let kS = Input.getDisplayKey(Input.userKeys.spin); let kE = Input.getDisplayKey(Input.userKeys.sleep); let kEat = Input.getDisplayKey(Input.userKeys.eat);
-
-        switch(this.tutPhase) {
-            case 0: this.tutText = "For centuries, our bloodline guarded the seal beneath this Dojo."; if (this.tutTimer <= 0) { this.tutPhase = 1; this.tutTimer = 180; } break;
-            case 1: this.tutText = "But time weakened the earth. The plague seeped out, raising the dead..."; if (this.tutTimer <= 0) { this.tutPhase = 2; this.tutTimer = 180; } break;
-            case 2: 
-                if (this.tutTimer === 179) { sfx.sfxWarlordRoar(); this.shake = 30; }
-                this.tutText = "*KRRR-GAAAHH!* A massive tremor shakes the Dojo..."; 
-                if (this.tutTimer <= 0) { this.tutPhase = 3; this.tutTimer = 240; } 
-                break;
-            case 3: this.tutText = "The Warlord. An avatar of the plague building its body deep below."; if (this.tutTimer <= 0) { this.tutPhase = 4; this.tutTimer = 180; } break;
-            case 4: this.tutText = "It requires immense lunar energy to manifest. For now, we prepare."; if (this.tutTimer <= 0) { this.tutPhase = 5; this.tutTimer = 180; } break;
-            case 5: this.tutText = "You are the last Master. You alone keep the Dojo standing."; if (this.tutTimer <= 0) { this.tutPhase = 6; this.tutTimer = 180; } break;
-            case 6: this.tutText = "The dead burn in the sunlight. But the nights are long."; if (this.tutTimer <= 0) { this.tutPhase = 7; this.tutTimer = 30; } break;
-            case 7: this.tutText = Input.isTouchDevice ? "Use the Virtual Joystick to move." : `Use ${kU}, ${kL}, ${kD}, ${kR} to move.`; if (this.tutTimer <= 0 && this.player.isMoving) { this.tutPhase = 8; this.tutTimer = 30; sfx.sfxLore(); } break;
-            case 8: this.tutText = Input.isTouchDevice ? "Punch the training dummy to increase Max Stamina! (Tap PUNCH)" : `Punch the training dummy to increase Max Stamina! (${kP} to Punch)`; break;
-            case 9: this.tutText = Input.isTouchDevice ? "When surrounded, the Hurricane creates space. (Tap SPIN)" : `When surrounded, the Hurricane creates space. (${kS} to Spin)`; break;
-            case 10: this.tutText = "Attacks drain Stamina (Blue). Without it, you are defenseless. Exhaust it."; if (this.player.stamina <= 30) { this.tutPhase = 11; this.tutTimer = 120; sfx.sfxLore(); this.player.fatigue = 90; } break;
-            case 11: this.tutText = "Notice how slow Stamina recovers? It depends on your Fatigue (Red)."; 
-                if (this.tutTimer <= 0) { 
-                    this.tutPhase = 12; this.tutTimer = 60; sfx.sfxLore(); 
-                    let bx = this.player.x + 200; let by = this.player.y;
-                    let boar = new Zombie(bx, by, 70, 2.5, 'boar', bx, by, 50, false);
-                    boar.room = 'HUB'; this.enemies.push(boar);
-                } break;
-            case 12: this.tutText = "You are exhausted. Hunt the Boar for meat."; if (this.food > 0) { this.tutPhase = 13; this.tutTimer = 60; sfx.sfxLore(); } break;
-            case 13: 
-                this.tutText = Input.isTouchDevice ? "Eat the meat to reduce your Fatigue. (Tap EAT)" : `Eat the meat to reduce your Fatigue. (Press ${kEat} to Eat)`; 
-                if (Input.keys.eat && Input.rReady) { 
-                    this.food--; this.player.fatigue = 0; 
-                    this.createFloatText(this.player.x+20, this.player.y, "+FOOD", "#44aa44", 'HUB');
-                    Input.rReady = false; this.tutPhase = 14; this.tutTimer = 60; sfx.sfxLore(); this.player.hp = 500; 
-                    this.food++; 
-                    this.createFloatText(this.player.x+20, this.player.y-20, "+1 BONUS MEAT", "#ffcc00", 'HUB');
-                } 
-                break;
-            case 14: this.tutText = Input.isTouchDevice ? "Rest near the Dojo to heal HP. Costs 1 Meat. (Tap REST)" : `Rest near the Dojo to heal HP. Costs 1 Meat. (Press ${kE} near Dojo)`; if (keys.sleep && Input.eReady && Math.abs(this.player.x - this.dojo.x) < 60 && Math.abs(this.player.y - this.dojo.y) < 60 && this.food > 0) { this.food--; this.player.hp = 1000; this.sleepFade = 60; Input.eReady = false; this.tutPhase = 15; this.tutTimer = 120; sfx.sfxLore(); } break;
-            case 15: 
-                this.tutText = "Night falls. The dead hunt the living! Survive!"; 
-                this.isDay = false; this.isSiege = false; 
-                if (this.tutTimer === 60) { this.spawnZombie(null, null, 'night'); this.spawnZombie(null, null, 'night'); } 
-                if (this.tutTimer <= 0 && this.enemies.length === 0) { this.tutPhase = 16; this.tutTimer = 180; sfx.sfxLore(); } 
-                break;
-            case 16: this.tutText = "But every 7th night, a Blood Moon rises!"; if (this.tutTimer <= 0) { this.tutPhase = 17; this.tutTimer = 180; sfx.sfxLore(); } break;
-            case 17: 
-                this.tutText = "They ignore you! Attack them to draw their aggro!"; 
-                this.isSiege = true;
-                if (this.tutTimer === 120) { this.spawnZombie(null, null, 'night'); this.spawnZombie(null, null, 'night'); } 
-                if (this.tutTimer <= 0 && this.enemies.length === 0) { 
-                    this.tutPhase = 18; this.tutTimer = 180; sfx.sfxLore(); 
-                    this.player.mutationGlow = 180; this.player.maxHp += 50; this.player.hp = this.player.maxHp; 
-                    sfx.sfxLevelUp(); this.createFloatText(this.player.x+20, this.player.y-40, "MUTATION: MAX HP UP!", "#d32f2f", 'HUB'); 
-                    this.isSiege = false; this.isDay = true;
-                } 
-                break;
-            case 18: this.tutText = "...surviving its radiation mutates your blood, making you stronger."; if (this.tutTimer <= 0) { this.tutPhase = 19; this.tutTimer = 180; sfx.sfxLore(); } break;
-            case 19: this.tutText = "Your awakening is complete. Now, survive the true nightmare."; if (this.tutTimer <= 0) { localStorage.setItem('lastDojoPrologueDone', 'true'); this.state = 'START'; UI.showMainMenu(); } break;
+    burnEssence() {
+        const p = this.player;
+        if (p.essence <= 0) return;
+        this.text(fx(p), p.y - 50, `${p.essence} essence burned away`, '#b89acb', 15);
+        for (let i = 0; i < Math.min(30, 6 + p.essence * 2); i++) {
+            this.particles.push(new Particle(fx(p) + (Math.random() - 0.5) * 30, p.y + 10, 'rgba(60,30,80,0.7)', { speed: 1, angle: -Math.PI / 2, spread: 1.2, grav: -0.05, shape: 'smoke', size: 6, life: 50 }));
         }
+        p.essence = 0;
     }
 
-    updateEpilogueLogic() {
-        if (this.epiTimer > 0) this.epiTimer--;
-        if (this.epiTimer <= 0) {
-            if (this.epiPhase < this.epiLines.length - 1) { this.epiPhase++; this.epiTimer = 150; } 
-            else { this.state = 'START'; UI.showMainMenu(); }
+    // ---------- the meal ----------
+    eatMeal() {
+        const p = this.player;
+        if (this.pot <= 0) return;
+        const tier = Math.min(MEAL.maxPot, this.pot);
+        this.pot = 0;
+        p.mealTier = tier;
+        p.mealBonus = MEAL.hp[tier];
+        p.maxHp += p.mealBonus; p.hp += p.mealBonus;
+        this.text(fx(p), p.y - 44, `${MEAL.names[tier]}: +${p.mealBonus} max HP tonight`, '#ffd77a', 16);
+        sfx.sfxEat();
+    }
+    endMeal() {
+        const p = this.player;
+        if (!p.mealTier) return;
+        p.maxHp -= p.mealBonus;
+        p.hp = Math.min(p.hp, p.maxHp);
+        p.ghostHp = Math.min(p.ghostHp, p.maxHp);
+        p.mealTier = 0; p.mealBonus = 0;
+    }
+
+    // =========================================
+    // SPAWNING
+    // =========================================
+    makeEnemy(type, x, y, opts = {}) {
+        const base = ENEMY[type];
+        const st = { ...base };
+        const d = this.dayCount, ec = this.ec;
+        if (!base.boss && type !== 'boar') {
+            st.hp = Math.round(base.hp * (1 + 0.1 * (d - 1)));
+            st.spd = base.spd + Math.min(0.6, 0.035 * (d - 1)) * (type === 'runner' ? 0.5 : 1);
+            if (this.isSiege) st.spd += 0.25;
         }
+        if (ec) {
+            if (base.boss) { st.hp = Math.round(st.hp * ec.bHealth); st.spd *= ec.bSpeed; st.size = Math.round(st.size * ec.bossSize); }
+            else if (type !== 'boar') { st.hp = Math.max(1, Math.round(st.hp * ec.zHealth)); st.spd *= ec.zSpeed; st.dmg = Math.max(1, Math.round(st.dmg * ec.zDamage)); }
+        }
+        if (opts.hpMult) st.hp = Math.max(1, Math.round(st.hp * opts.hpMult));
+        const e = new Enemy(type, x, y, st);
+        if (type === 'alpha') e.isAlpha = true;
+        if (type === 'brood') e.isBrood = true;
+        e.state = type === 'boar' ? 'idle' : 'chase';
+        this.clampEnemy(e);
+        this.enemies.push(e);
+        return e;
     }
 
-    update() {
-        if (this.state === 'EPILOGUE') { this.updateEpilogueLogic(); return; }
-        if (!['PLAYING', 'TUTORIAL', 'SUNRISE'].includes(this.state)) return;
-        
-        if (this.sleepFade > 0) { 
-            this.sleepFade--; 
-            if (this.sleepFade === 30 && this.state === 'PLAYING') {
-                this.timeTimer = 0; 
-                this.mounds.forEach(m => {
-                    if (m.state === 'planted_day') m.state = 'bloomed';
-                    else if (m.state === 'planted_night') m.state = 'planted_day';
-                });
+    spawnDayContent() {
+        const n = this.ec ? Math.round(this.ec.crates) : 3;
+        const live = this.caches.filter(k => !k.dead).length;
+        for (let i = 0; i < n && live + i < 6; i++) {
+            let x, y, tries = 0;
+            do {
+                x = 90 + Math.random() * (FOREST_END - 220);
+                y = FEET_MIN + 20 + Math.random() * (FEET_MAX - FEET_MIN - 60) - 34;
+            } while (tries++ < 40 && (this.trees.some(t => Math.abs(t.x - (x + 22)) < 50 && Math.abs(t.y - (y + 34)) < 40) ||
+                     dist(x + 22, y + 34, fx(this.player), fy(this.player)) < 320));
+            const k = new Cache(x, y);
+            this.caches.push(k);
+            const guards = 2 + Math.floor((this.dayCount - 1) / 4);
+            for (let g = 0; g < guards; g++) {
+                const a = (g / guards) * Math.PI * 2;
+                const e = this.makeEnemy('walker', x + 2 + Math.cos(a) * 60, y - 6 + Math.sin(a) * 35, { hpMult: 0.8 });
+                e.shade = true; e.anchorX = x + 22; e.anchorY = y + 34;
+                e.facingRight = Math.random() < 0.5;
             }
-            return; 
+        }
+        for (let i = 0; i < 2 && this.enemies.filter(e => e.type === 'boar' && !e.dead).length < 2; i++) this.spawnBoar(false);
+    }
+
+    // Boars only appear well away from the master (and off-screen when asked),
+    // and need a moment to notice him, so one can never charge out of nowhere.
+    spawnBoar(offscreen) {
+        const p = this.player;
+        for (let i = 0; i < 40; i++) {
+            const x = 60 + Math.random() * (FOREST_END - 160);
+            const y = FEET_MIN + 20 + Math.random() * (FEET_MAX - FEET_MIN - 40) - 52;
+            if (dist(x + 26, y + 52, fx(p), fy(p)) < 450) continue;
+            // prefer off-screen; if the whole forest is in view, allow a distant on-screen spot
+            if (offscreen && i < 25 && x + 60 > this.camera.x && x - 10 < this.camera.x + W) continue;
+            if (this.trees.some(t => t.solid && Math.abs(t.x - (x + 26)) < 30 && Math.abs(t.y - (y + 52)) < 20)) continue;
+            const b = this.makeEnemy('boar', x, y);
+            b.anchorX = clamp(x, 120, FOREST_END - 120); b.anchorY = y;
+            b.facingRight = Math.random() < 0.5;
+            b.calm = 90;
+            return b;
+        }
+        return null; // no safe spot right now; try again later
+    }
+
+    pickNightType() {
+        const d = this.dayCount;
+        const n = t => this.enemies.filter(e => e.type === t && !e.dead).length;
+        if (d >= 7 && Math.random() < 0.07 && n('bloater') < 2) return 'bloater';
+        if (d >= 3 && Math.random() < Math.min(0.2, 0.06 + 0.01 * d) && n('brute') < 1 + Math.floor(d / 5)) return 'brute';
+        if (d >= 4 && Math.random() < 0.12 && n('spitter') < 1 + Math.floor(d / 6)) return 'spitter';
+        if (d >= 6 && Math.random() < 0.18) return 'runner';
+        return 'walker';
+    }
+
+    updateNightSpawns() {
+        if (this.peaceful || this.announce.timer > 150 || this.state !== 'PLAYING') return;
+        const d = this.dayCount;
+        const cap = this.ec ? this.ec.maxZ : (this.isSiege ? 18 : Math.min(6 + Math.floor(d * 1.5), 26));
+        const active = this.enemies.filter(e => !e.dead && e.type !== 'boar' && !e.isBoss && !e.burning).length;
+        let rate = this.isSiege ? 0.05 : 0.02 + d * 0.003;
+        if (this.ec) rate *= this.ec.spawnRate;
+        if (active < cap && Math.random() < rate) this.spawnNightZombie();
+    }
+
+    spawnNightZombie() {
+        const type = this.pickNightType();
+        const size = ENEMY[type].size;
+        const p = this.player;
+        const maxX = SANCT_START - size - 20;
+        const randY = () => FEET_MIN + Math.random() * (FEET_MAX - FEET_MIN) - size;
+        let x = 0, y = 0, rise = false, ok = false;
+        for (let i = 0; i < 14; i++) {
+            const r = Math.random();
+            rise = false;
+            if (r < 0.35) { x = this.camera.x + 40 + Math.random() * (W - 80); y = randY(); rise = true; }
+            else if (r < 0.65) { x = this.camera.x - size - 10; y = randY(); }
+            else if (r < 0.8) { x = this.camera.x + W + 10; y = randY(); }
+            else { x = this.camera.x + Math.random() * W; y = FEET_MIN - size; rise = true; }
+            x = clamp(x, 0, maxX);
+            const feet = { x: x + size * 0.28, y: y + size - 10, w: size * 0.44, h: 10 };
+            if (OBSTACLES.some(o => rectHit(feet, o))) continue;
+            if (dist(x + size / 2, y + size, fx(p), fy(p)) > 240) { ok = true; break; }
+        }
+        if (!ok) {
+            // no safe spot found: walk in from whichever screen edge is farther from the master
+            rise = false;
+            const leftGap = fx(p) - this.camera.x;
+            x = clamp(leftGap > W / 2 ? this.camera.x - size - 10 : this.camera.x + W + 10, 0, maxX);
+            y = randY();
+            if (dist(x + size / 2, y + size, fx(p), fy(p)) < 240) return; // cornered against the sanctuary: skip this spawn
+        }
+        const e = this.makeEnemy(type, x, y);
+        e.facingRight = x < p.x;
+        if (rise) { e.spawnTimer = e.spawnMax = 50; this.burst(fx(e), fy(e), '#3a2a1c', 8, { speed: 3 }); }
+    }
+
+    pickBosses() {
+        const d = this.dayCount;
+        if (!this.ec) return [d >= SURVIVAL_DAYS ? 'warlord' : (Math.floor(d / this.bmFreq) % 2 === 1 ? 'alpha' : 'brood')];
+        if (d - (this.lastVesselDay || 0) >= Math.max(1, Math.round(this.ec.bossFreq))) {
+            this.lastVesselDay = d;
+            const count = Math.min(this.ec.bossCap, 1 + Math.floor((d - this.ec.bossFreq) / 14));
+            return Array(Math.max(1, count)).fill('warlord');
+        }
+        return [Math.floor(d / this.bmFreq) % 2 === 1 ? 'alpha' : 'brood'];
+    }
+
+    spawnBoss(type, i = 0) {
+        const p = this.player;
+        const size = ENEMY[type].size;
+        let x = fx(p) - 340 - size / 2 - i * 90;
+        if (x < 40) x = fx(p) + 300 + i * 90;
+        x = clamp(x, 20, SANCT_START - size - 40);
+        const y = clamp(fy(p) - size + (i % 2 ? 60 : -30), FEET_MIN - size + 10, FEET_MAX - size);
+        const e = this.makeEnemy(type, x, y);
+        e.spawnTimer = e.spawnMax = 120;
+        e.specialTimer = 200; e.summonTimer = 420;
+        e.facingRight = x < p.x;
+        this.decals.push(new Decal(fx(e), fy(e), 'rgba(20,10,10,0.6)', 2.4));
+    }
+
+    // =========================================
+    // KEGARE
+    // =========================================
+    kegareMult() { return 1 + KEGARE.dmgPerSkull * Math.floor(this.player.infection); }
+
+    addInfection(amount, source) {
+        if (this.ec && this.ec.noKegare) return;
+        if (this.state !== 'PLAYING' || this.kegareLocked) return;
+        const p = this.player;
+        if (source === 'bite') amount *= 1 - 0.3 * p.t('ward');
+        const prev = Math.floor(p.infection);
+        p.infection = Math.min(3, p.infection + amount);
+        if (Math.floor(p.infection) > prev && p.infection < 3) {
+            p.surgeWarn = KEGARE.surgeWarnFrames;
+            this.text(fx(p), p.y - 34, 'The Kegare rises...', '#d69cff', 16);
+            this.hint('surge');
+        }
+    }
+
+    doSurge() {
+        const p = this.player;
+        p.staggerTimer = KEGARE.surgeStaggerFrames;
+        p.attackType = null; p.attackTimer = 0; p.eatTimer = 0;
+        this.surgeFlash = 30; this.shake = 14;
+        sfx.sfxSurge();
+        this.text(fx(p), p.y - 30, 'Kegare surge', '#d69cff', 20);
+        this.effects.push(new Ring(fx(p), fy(p) - 6, 10, 140, 26, '#b05ce0', 6));
+        this.burst(fx(p), p.y + 20, '#7b3fa0', 40, { speed: 7 });
+        // the curse lashes out at everything nearby too
+        for (const e of this.enemies) {
+            if (e.dead || e.spawnTimer > 0) continue;
+            const d = dist(fx(e), fy(e), fx(p), fy(p));
+            if (d < 140) {
+                const dir = fx(e) > fx(p) ? 1 : -1;
+                this.applyHit(e, 15, dir, 18, { noCombo: true, source: 'surge' });
+            }
+        }
+    }
+
+    // =========================================
+    // PLAYER
+    // =========================================
+    freeStamina() {
+        const p = this.player;
+        if (p.rushTimer > 0) return true;
+        if (this.isSiege && !this.peaceful && !this.isDay && !this.noSiegeBoost) return this.ec ? this.ec.infStamBM : true;
+        if (this.ec && this.ec.infStamReg) return true;
+        return false;
+    }
+    siegeBoost() { return this.isSiege && !this.peaceful && !this.isDay && !this.noSiegeBoost; }
+    spend(cost) {
+        const p = this.player;
+        if (this.freeStamina()) return true;
+        cost *= this.cfg('stamDrain', 1);
+        if (p.stamina < cost) return false;
+        p.stamina -= cost; p.staminaDelay = PLAYER.staminaDelay;
+        return true;
+    }
+
+    updatePlayer() {
+        const p = this.player, keys = Input.keys;
+        for (const k of ['iFrames', 'hurtTimer', 'hitTimer', 'dashCd', 'spinCd', 'chainTimer', 'rushTimer', 'staminaDelay']) if (p[k] > 0) p[k]--;
+        if (p.attackTimer > 0 && --p.attackTimer <= 0) p.attackType = null;
+        if (p.eatTimer > 0 && --p.eatTimer === 0) this.finishEating();
+        if (p.surgeWarn > 0) {
+            if (p.surgeWarn % 30 === 0) sfx.sfxHeartbeat();
+            if (--p.surgeWarn === 0) this.doSurge();
         }
 
-        if (this.hitStop > 0) { this.hitStop--; return; } 
-        if (this.damageFlash > 0) this.damageFlash--;
+        if (p.staggerTimer > 0) {
+            p.staggerTimer--; p.isMoving = false;
+        } else if (this.inputLocked) {
+            p.isMoving = false;
+        } else {
+            let mx = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+            let my = (keys.down ? 1 : 0) - (keys.up ? 1 : 0);
+            const ml = Math.hypot(mx, my);
+            if (ml > 0) { mx /= ml; my /= ml; }
 
-        const keys = Input.keys;
-        
-        this.activePrompt = { text: '', action: null, target: null };
+            if (Input.consume('dash')) this.tryDash(mx, my);
 
-        if (this.state === 'PLAYING') {
-            if (this.player.stunTimer > 0) {
-                this.player.stunTimer--;
-                this.player.isMoving = false;
-                this.player.isAttacking = false;
+            if (p.dashTimer > 0) {
+                p.dashTimer--;
+                p.x += p.dashVx; p.y += p.dashVy;
+                p.isMoving = true;
+                if (this.frames % 2 === 0) this.burst(fx(p), fy(p), 'rgba(200,190,170,0.6)', 1, { speed: 1, shape: 'smoke', grav: -0.02, size: 5, life: 20 });
+                if (p.t('riposte')) {
+                    for (const e of this.enemies) {
+                        if (e.dead || p.dashHit.has(e) || e.spawnTimer > 0) continue;
+                        if (rectHit({ x: p.x + 4, y: p.y, w: 32, h: 40 }, { x: e.x + 6, y: e.y + 4, w: e.w - 12, h: e.h - 4 })) {
+                            p.dashHit.add(e);
+                            this.applyHit(e, 25 * this.kegareMult(), Math.sign(p.dashVx) || 1, 8, { source: 'dash' });
+                        }
+                    }
+                }
             } else {
-                let prevSkull = Math.floor(this.player.infection);
-                this.player.infection += 0.00006; 
-                
-                if (Math.floor(this.player.infection) > prevSkull && prevSkull < 3) {
-                    this.player.stunTimer = 90; 
-                    sfx.sfxFrustratedGroan();
-                    this.shake = 15;
-                    this.damageFlash = 30;
-                    this.createFloatText(this.player.x+20, this.player.y-20, "SHATTERED BLOOD!", "#d32f2f", this.currentRoom);
-                }
-                if (this.player.infection >= 3.0) {
-                    this.player.hp = 0; 
-                }
+                let spd = p.speed * this.cfg('pSpeed', 1);
+                if (p.rushTimer > 0) spd *= 1.35;
+                if (p.eatTimer > 0) spd *= 0.45;
+                if (p.attackType === 'punch') spd *= 0.5;
+                else if (p.attackType === 'spin') spd *= 0.7;
+                p.x += mx * spd; p.y += my * spd;
+                p.isMoving = ml > 0;
+                if (p.isMoving) p.walkPhase += 0.28;
+                if (mx !== 0 && p.attackType !== 'punch') p.facingRight = mx > 0;
             }
 
-            let inSanctuary = (this.currentRoom === 'HUB' && this.player.x > 1750);
-            if (inSanctuary) {
-                this.player.sanctuaryBurn = Math.min(1200, (this.player.sanctuaryBurn || 0) + 1);
-                if (this.player.sanctuaryBurn >= 420 && this.frames % 10 === 0) {
-                    let overstayFrames = this.player.sanctuaryBurn - 420;
-                    let burnDmg = 1 + Math.floor(overstayFrames / 60); 
-                    
-                    this.player.hp = Math.max(0, this.player.hp - burnDmg);
+            const canAct = p.attackTimer <= 0 && p.dashTimer <= 0 && p.eatTimer <= 0;
+            if (canAct && (keys.spin || Input.mouse.right) && p.spinCd <= 0) this.doSpin();
+            else if (canAct && (keys.punch || Input.mouse.left)) this.doPunch();
+            if (Input.consume('eat')) this.tryEat();
+            if (Input.consume('unleash')) this.tryUnleash();
+            if (Input.consume('interact')) this.tryInteract();
+        }
+
+        // afterimages while dashing or unleashed
+        if ((p.dashTimer > 0 || (p.rushTimer > 0 && p.isMoving)) && this.frames % 3 === 0) p.trail.push({ x: p.x, y: p.y });
+        else if (this.frames % 3 === 0 && p.trail.length) p.trail.shift();
+        if (p.trail.length > 5) p.trail.shift();
+
+        // knockback
+        p.x += p.kvx; p.y += p.kvy; p.kvx *= 0.8; p.kvy *= 0.8;
+        p.x = clamp(p.x, 0, WORLD_W - p.w);
+        p.y = clamp(p.y, FEET_MIN - p.h, FEET_MAX - p.h);
+        for (const o of OBSTACLES) this.pushOut(p, o);
+
+        // stamina
+        if (p.staminaDelay <= 0 && (p.attackTimer <= 0 || p.t('flow'))) {
+            p.stamina = Math.min(p.maxStamina, p.stamina + PLAYER.staminaRegen * (1 + 0.2 * p.t('wind') + MEAL.regen[p.mealTier || 0]));
+        }
+        p.ghostHp += (p.hp - p.ghostHp) * 0.05;
+        if (p.ghostHp < p.hp) p.ghostHp = p.hp;
+
+        this.updateSanctuary();
+        this.updatePrompt();
+        if (p.hp < p.maxHp * 0.35 && this.state === 'PLAYING') this.hint('hurt');
+
+        // first-sight hints
+        if (this.isDay && p.food > 0 && this.state === 'PLAYING') this.hint('meal');
+        if (this.isDay) {
+            for (const e of this.enemies) if (e.type === 'boar' && !e.dead && dist(fx(e), fy(e), fx(p), fy(p)) < 320) { this.hint('boar'); break; }
+            for (const k of this.caches) if (!k.dead && dist(k.x, k.y, fx(p), fy(p)) < 300) { this.hint('cache'); break; }
+        }
+    }
+
+    tryDash(mx, my) {
+        const p = this.player;
+        if (p.dashCd > 0 || p.attackType === 'spin' || p.eatTimer > 0) return;
+        if (!this.spend(PLAYER.dashCost)) { this.text(fx(p), p.y - 10, 'No stamina', '#8fb8d9', 13); return; }
+        if (mx === 0 && my === 0) mx = p.facingRight ? 1 : -1;
+        p.dashVx = mx * PLAYER.dashSpeed; p.dashVy = my * PLAYER.dashSpeed * 0.8;
+        p.dashTimer = PLAYER.dashFrames;
+        p.iFrames = Math.max(p.iFrames, PLAYER.dashFrames + 4);
+        p.dashCd = Math.round(PLAYER.dashCd * Math.pow(0.65, p.t('swift')));
+        p.attackType = null; p.attackTimer = 0;
+        p.dashHit.clear();
+        if (mx !== 0) p.facingRight = mx > 0;
+        sfx.sfxDash();
+    }
+
+    doPunch() {
+        const p = this.player;
+        if (!this.spend(PLAYER.punchCost)) return;
+        p.chain = p.chainTimer > 0 ? (p.chain + 1) % 3 : 0;
+        p.chainTimer = 34;
+        p.finisher = p.chain === 2;
+        p.attackType = 'punch';
+        p.attackMax = p.attackTimer = p.finisher ? 18 : 13;
+        const dir = p.facingRight ? 1 : -1;
+        const boost = this.siegeBoost();
+        const dmg = p.dmg * (1 + 0.2 * p.t('iron')) * this.kegareMult() * (boost ? 2.5 : 1) * (p.finisher ? 1.6 : 1);
+        const heavy = p.finisher && p.t('palm');
+        const kb = (p.finisher ? 15 : 6) * (heavy ? 1.7 : 1) * (boost ? 1.8 : 1) * this.cfg('knockback', 1);
+        const hb = { x: dir > 0 ? p.x + 22 : p.x - 30, y: p.y - 8, w: 48, h: 54 };
+        let hits = 0;
+        for (const e of this.enemies) {
+            if (e.dead || e.spawnTimer > 0) continue;
+            if (rectHit(hb, { x: e.x + 6, y: e.y + 4, w: e.w - 12, h: e.h - 4 })) {
+                if (this.applyHit(e, dmg, dir, kb, { finisher: p.finisher, stun: heavy ? 70 : 0, source: 'punch' })) hits++;
+            }
+        }
+        for (const k of this.caches) if (!k.dead && rectHit(hb, k)) { this.hitCache(k, 1); hits++; }
+        this.effects.push(new Slash(fx(p) + dir * 30, p.y + 13, dir, p.finisher));
+        sfx.sfxSwing();
+        if (hits > 0) this.hitStop = Math.max(this.hitStop, p.finisher ? 5 : 2);
+    }
+
+    doSpin() {
+        const p = this.player;
+        if (!this.spend(PLAYER.spinCost)) { this.text(fx(p), p.y - 10, 'No stamina', '#8fb8d9', 13); return; }
+        p.attackType = 'spin';
+        p.attackMax = p.attackTimer = 22;
+        p.spinCd = Math.round(PLAYER.spinCd * Math.pow(0.65, p.t('cyclone')) * this.cfg('spinCd', 1));
+        const boost = this.siegeBoost();
+        const R = PLAYER.spinRadius * (1 + 0.25 * p.t('reach')) * (boost ? 1.5 : 1);
+        const dmg = 26 * (1 + 0.1 * p.t('iron')) * this.kegareMult() * (boost ? 2.5 : 1);
+        const kb = 16 * (boost ? 1.8 : 1) * this.cfg('knockback', 1);
+        const cx = fx(p), cy = p.y + 26;
+        let hits = 0;
+        for (const e of this.enemies) {
+            if (e.dead || e.spawnTimer > 0) continue;
+            const dx = fx(e) - cx, dy = (e.y + e.h * 0.6 - cy) / 0.6;
+            if (Math.hypot(dx, dy) < R + e.w * 0.35) {
+                if (this.applyHit(e, dmg, dx >= 0 ? 1 : -1, kb, { source: 'spin', dirY: Math.sign(dy) * 0.4 })) hits++;
+            }
+        }
+        for (const k of this.caches) {
+            if (!k.dead && Math.hypot(k.x + 22 - cx, (k.y + 20 - cy) / 0.6) < R + 20) { this.hitCache(k, 2); hits++; }
+        }
+        for (const pr of this.projectiles) {
+            if (!pr.reflected && Math.hypot(pr.x - cx, (pr.y - cy) / 0.7) < R + 10) {
+                pr.vx *= -1.6; pr.vy *= -1.6; pr.reflected = true; pr.life = 200;
+                this.text(pr.x, pr.y - 10, 'Parry!', '#7ff3ff', 15);
+                sfx.sfxParry(); this.hitStop = Math.max(this.hitStop, 3);
+            }
+        }
+        this.effects.push(new Ring(cx, fy(p) - 4, 12, R, 16, '#ffffff', 5));
+        this.burst(cx, cy, '#ffffff', 14, { speed: 6, grav: 0 });
+        this.shake = Math.max(this.shake, 6);
+        sfx.sfxSpin();
+        if (hits > 0) this.hitStop = Math.max(this.hitStop, 3);
+    }
+
+    tryEat() {
+        const p = this.player;
+        if (p.food <= 0) { this.text(fx(p), p.y - 10, 'No meat', '#cfc6b4', 14); sfx.sfxDenied(); return; }
+        if (p.hp >= p.maxHp) { this.text(fx(p), p.y - 10, 'Already at full health', '#cfc6b4', 14); return; }
+        if (p.eatTimer > 0 || p.attackTimer > 0) return;
+        p.eatTimer = 36;
+        sfx.sfxEat();
+    }
+    finishEating() {
+        const p = this.player;
+        if (p.food <= 0) return;
+        p.food--;
+        this.stats.eats++;
+        const heal = Math.min(p.maxHp - p.hp, Math.round(p.maxHp * 0.3));
+        p.hp += heal;
+        this.text(fx(p), p.y - 10, `+${heal}`, '#7ddf64', 18);
+        this.burst(fx(p), p.y + 10, '#7ddf64', 10, { speed: 2, grav: -0.05 });
+    }
+
+    tryUnleash() {
+        const p = this.player;
+        if (p.essence <= 0) { this.text(fx(p), p.y - 10, 'No essence', '#d6b4f0', 14); sfx.sfxDenied(); return; }
+        if (p.infection >= KEGARE.unleashBlockAt && !(this.ec && this.ec.noKegare)) {
+            this.text(fx(p), p.y - 10, 'The Kegare would consume you', '#d69cff', 14); sfx.sfxDenied(); return;
+        }
+        p.essence--;
+        p.rushTimer = Math.round(360 * (p.t('frenzy') ? 1.5 : 1));
+        p.stamina = p.maxStamina;
+        this.addInfection(KEGARE.unleashCost, 'unleash');
+        sfx.sfxUnleash();
+        this.shake = Math.max(this.shake, 10);
+        this.text(fx(p), p.y - 30, 'Unleashed', '#ff4d4d', 22);
+        this.effects.push(new Ring(fx(p), fy(p) - 4, 10, 90, 18, '#ff3b3b', 5));
+        this.burst(fx(p), p.y + 20, '#ff2a2a', 26, { speed: 6 });
+    }
+
+    tryInteract() {
+        const p = this.player;
+        if (!this.prompt && !this.isDay && !this.script && dist(fx(p), fy(p), DOJO_DOOR.x, DOJO_DOOR.y) < 70) {
+            this.text(fx(p), p.y - 10, 'No rest while the dead walk', '#cfc6b4', 14);
+            return;
+        }
+        if (!this.prompt || !this.prompt.action) return;
+        if (this.prompt.action === 'cook') {
+            p.food--; this.pot++;
+            sfx.sfxPickup();
+            this.text(POT.x, POT.y - 40, `${this.pot} of ${MEAL.maxPot}: ${MEAL.names[this.pot]}`, '#ffd77a', 15);
+            this.burst(POT.x, POT.y - 24, 'rgba(240,240,240,0.6)', 6, { speed: 1, angle: -Math.PI / 2, grav: -0.05, shape: 'smoke', size: 5, life: 40 });
+        } else if (this.prompt.action === 'rest' || this.prompt.action === 'restNight') {
+            this.sleepTarget = this.prompt.action === 'rest' ? 'dusk' : 'dawn';
+            const frac = this.timeTimer / this.phaseLen;
+            const heal = Math.round(p.maxHp * (0.25 + 0.5 * frac));
+            p.hp = Math.min(p.maxHp, p.hp + heal);
+            p.stamina = p.maxStamina;
+            p.sanctTime = 0;
+            this.text(fx(p), p.y - 10, `Rested +${heal}`, '#7ddf64', 18);
+            this.sleepFade = 80;
+            this.hint('rest');
+        } else if (this.prompt.action === 'offer') {
+            const n = Math.min(p.essence, Math.ceil(p.infection / KEGARE.perEssenceCure - 1e-6));
+            p.essence -= n;
+            p.infection = Math.max(0, p.infection - n * KEGARE.perEssenceCure);
+            p.surgeWarn = 0;
+            this.cureFlash = 40; this.shrineGlow = 60;
+            sfx.sfxOffer();
+            this.text(SHRINE.x, SHRINE.y - 100, `${n} essence purified`, '#bff4ff', 18);
+            this.effects.push(new Ring(SHRINE.x, SHRINE.y - 4, 20, 160, 40, '#bff4ff', 5));
+            for (let i = 0; i < 30; i++) this.particles.push(new Particle(fx(p), p.y + 20, '#bff4ff', { speed: 3, angle: -Math.PI / 2, spread: 2, grav: -0.08, life: 50 }));
+        }
+    }
+
+    updateSanctuary() {
+        const p = this.player;
+        const inS = fx(p) > SANCT_START && this.state === 'PLAYING' && !this.inputLocked;
+        const grace = KEGARE.sanctGrace[Math.min(2, Math.floor(p.infection))];
+        if (inS) {
+            this.hint('sanct');
+            p.sanctTime++;
+            if (p.sanctTime > grace && this.frames % 30 === 0) {
+                const d = 3 + 3 * Math.floor(p.infection);
+                p.hp = Math.max(0, p.hp - d);
+                this.text(fx(p), p.y - 4, `-${d}`, '#ffd77a', 15);
+                this.burst(fx(p), p.y + 20, '#ffd77a', 6, { speed: 2, grav: -0.1 });
+                this.dmgFlash = Math.max(this.dmgFlash, 10);
+            }
+        } else {
+            p.sanctTime = Math.max(0, p.sanctTime - 3);
+        }
+        this.sanctFrac = p.sanctTime > 0 ? p.sanctTime / grace : 0;
+    }
+
+    updatePrompt() {
+        const p = this.player;
+        this.prompt = null;
+        if (this.state !== 'PLAYING') return;
+        const px = fx(p), py = fy(p);
+        if (dist(px, py, DOJO_DOOR.x, DOJO_DOOR.y) < 70) {
+            if (this.script) return;
+            if (this.isDay) this.prompt = { action: 'rest', text: 'Rest until dusk' };
+            else if (this.quietNight()) this.prompt = { action: 'restNight', text: 'Rest until dawn' };
+            // otherwise no prompt: the doors are where you fight, so keep that space clear
+        } else if (dist(px, py, POT.x, POT.y) < 60 && !this.script) {
+            if (!this.isDay) this.prompt = p.mealTier ? { action: null, text: `${MEAL.names[p.mealTier]} tonight` } : { action: null, text: 'Cook during the day; you eat at dusk' };
+            else if (this.pot >= MEAL.maxPot) this.prompt = { action: null, text: 'The feast is ready for tonight' };
+            else if (p.food <= 0) this.prompt = { action: null, text: 'No meat to cook' };
+            else this.prompt = { action: 'cook', text: `Add meat to tonight's meal (${this.pot} of ${MEAL.maxPot})` };
+        } else if (dist(px, py, SHRINE.x, SHRINE.y + 20) < 90) {
+            if (this.isDay) this.prompt = { action: null, text: 'The Gekka Bijin opens only under the moon' };
+            else if (p.infection <= 0.001) this.prompt = { action: null, text: 'Your blood is clean' };
+            else if (p.essence <= 0) this.prompt = { action: null, text: 'The flower needs Kegare essence' };
+            else this.prompt = { action: 'offer', text: `Offer essence (${p.essence})` };
+        }
+    }
+
+    // You can only sleep through a night once its champion has fallen and the horde has scattered.
+    quietNight() {
+        return !this.isDay && this.peaceful;
+    }
+
+    damagePlayer(dmg, src, keg = 0) {
+        const p = this.player;
+        if (p.iFrames > 0 || this.inputLocked || !['PLAYING', 'SUNRISE'].includes(this.state)) return false;
+        let d = dmg;
+        if (p.rushTimer > 0) d *= 0.5;
+        if (this.ec && this.ec.ohk) d = 9999;
+        d = Math.round(d);
+        p.hp = Math.max(0, p.hp - d);
+        p.iFrames = 40; p.hurtTimer = 14; p.hitTimer = 4; p.eatTimer = 0;
+        if (src) { const dir = fx(p) >= (src.x + (src.w || 0) / 2) ? 1 : -1; p.kvx = dir * 5; }
+        this.combo = 0;
+        this.dmgFlash = 26;
+        this.shake = Math.max(this.shake, d >= 20 ? 12 : 6);
+        sfx.sfxHurt();
+        this.burst(fx(p), p.y + 18, '#b3261e', 10, { speed: 4 });
+        this.text(fx(p), p.y - 4, `-${d}`, '#ff5a4a', 18);
+        if (keg > 0) this.addInfection(keg, 'bite');
+        return true;
+    }
+
+    // =========================================
+    // HITS & KILLS
+    // =========================================
+    applyHit(e, dmg, dirX, kb, o = {}) {
+        if (e.dead || e.spawnTimer > 0) return false;
+        const p = this.player;
+        let d = dmg;
+        let note = null;
+        if (e.type === 'boar') {
+            if (o.source === 'spin' && e.state === 'charge') {
+                e.state = 'stunned'; e.stateTimer = 150; e.damagedWhileStunned = false;
+                d = 40; note = 'Clash!';
+                sfx.sfxParry(); this.hitStop = Math.max(this.hitStop, 6);
+                e.x += dirX * 30;
+            } else if (e.state !== 'stunned' && e.state !== 'flee') {
+                d = dmg * 0.25;
+            } else if (e.state === 'stunned') {
+                e.damagedWhileStunned = true;
+            }
+        }
+        if (!o.noCombo) { this.combo++; this.comboTimer = 180; }
+        const comboMult = this.combo >= 25 ? 1.5 : (this.combo >= 10 ? 1.2 : 1);
+        d = Math.max(1, Math.ceil(d * comboMult));
+        e.hp -= d; e.hitTimer = 5;
+
+        if (e.type !== 'boar' && !e.isBoss) {
+            e.attackWind = 0;
+            e.stunTimer = Math.max(e.stunTimer, o.stun || (o.finisher ? 18 : 10));
+            if (e.fuse > 0) e.fuse = Math.max(0, e.fuse - 10);
+        }
+        if (o.stun && !e.isBoss && e.type !== 'boar') note = 'Stunned';
+        if (e.type === 'boar' && e.state !== 'stunned' && e.state !== 'flee') kb = 0;
+        e.vx += dirX * kb * 0.9 * e.kbRes;
+        e.vy += (o.dirY || 0) * kb * 0.9 * e.kbRes;
+
+        if (e.type !== 'boar') { e.aggroTimer = 480; if (e.shade) this.alertGuards(e.anchorX, e.anchorY); }
+
+        const heal = p.t('vamp') + (p.rushTimer > 0 ? 2 : 0) + this.cfg('lifesteal', 0);
+        if (heal > 0 && o.source !== 'surge') p.hp = Math.min(p.maxHp, p.hp + heal);
+
+        const bloodCol = { spitter: '#b5c934', brood: '#9c5cc4', bloater: '#9aa64a', boar: '#8b1a1a', warlord: '#ffb74d' }[e.type] || '#7a1010';
+        const hx = fx(e), hy = e.y + e.h * 0.4;
+        this.burst(hx, hy, bloodCol, o.finisher ? 12 : 7, { speed: 5, angle: dirX > 0 ? 0 : Math.PI, spread: 1.6 });
+        this.burst(hx, hy, '#ffffff', 4, { speed: 7, shape: 'spark', grav: 0, life: 8 });
+        const col = comboMult >= 1.5 ? '#ff4d4d' : (comboMult >= 1.2 ? '#ffd54f' : '#ffffff');
+        this.text(hx, e.y - 4, `${d}`, col, o.finisher ? 20 : 16);
+        if (note) this.text(hx, e.y - 24, note, '#7ff3ff', 14);
+        this.shake = Math.max(this.shake, o.finisher ? 7 : (e.isBoss ? 5 : 3));
+        if (o.finisher) sfx.sfxHeavyHit(); else sfx.sfxHit();
+
+        if (e.hp <= 0) this.killEnemy(e, dirX, o.finisher ? 'yeet' : 'hit');
+        return true;
+    }
+
+    alertGuards(ax, ay) {
+        for (const g of this.enemies) if (g.shade && !g.dead && dist(g.anchorX, g.anchorY, ax, ay) < 10) g.aggroTimer = 600;
+    }
+
+    hitCache(k, amount) {
+        k.hp -= amount; k.hitTimer = 6;
+        sfx.sfxCrate();
+        this.burst(k.x + 22, k.y + 16, '#8d6037', 6, { speed: 4 });
+        this.alertGuards(k.x + 22, k.y + 34);
+        if (k.hp <= 0) {
+            k.dead = true;
+            const meat = MEAT.cache + this.player.t('butcher');
+            for (let i = 0; i < meat; i++) this.dropLoot(k.x + 22, k.y + 34, 'meat');
+            if (Math.random() < 0.3) this.dropLoot(k.x + 22, k.y + 34, 'bandage');
+            this.burst(k.x + 22, k.y + 16, '#6e4627', 20, { speed: 6 });
+            this.text(k.x + 22, k.y - 6, 'Supplies!', '#ffd77a', 16);
+            this.shake = Math.max(this.shake, 5);
+        }
+    }
+
+    dropLoot(x, y, type) {
+        const l = new Loot(clamp(x, 20, WORLD_W - 20), clamp(y, FEET_MIN + 4, FEET_MAX - 2), type);
+        this.loot.push(l);
+        if (this.loot.length > 70) this.loot.shift();
+    }
+
+    killEnemy(e, dirX, cause) {
+        if (e.dead) return;
+        e.dead = true; e.hp = 0;
+        const p = this.player;
+        const burned = cause === 'burn';
+
+        if (e.type === 'boar') {
+            for (let i = 0; i < MEAT.boar + p.t('butcher'); i++) this.dropLoot(fx(e) + (Math.random() - 0.5) * 30, fy(e), 'meat');
+            this.text(fx(e), e.y - 10, 'Hunted!', '#ffd77a', 18);
+            this.corpses.push(new Corpse(e, dirX || 1));
+            this.decals.push(new Decal(fx(e), fy(e), 'rgba(90,10,10,0.55)', 1.3));
+            return;
+        }
+        if (e.isBoss) { this.onBossDeath(e, cause); return; }
+        if (!burned) this.kills++;
+
+        if (burned) {
+            this.burst(fx(e), e.y + e.h / 2, '#3a3030', 14, { speed: 2, shape: 'smoke', grav: -0.06, size: 6 });
+            this.decals.push(new Decal(fx(e), fy(e), 'rgba(20,16,14,0.45)', 1.1, 400));
+            return;
+        }
+        this.corpses.push(new Corpse(e, dirX || 1, cause === 'yeet'));
+        const decalCol = e.type === 'spitter' ? 'rgba(150,190,20,0.45)' : (e.type === 'bloater' ? 'rgba(130,140,40,0.5)' : 'rgba(110,0,0,0.5)');
+        this.decals.push(new Decal(fx(e), fy(e), decalCol, e.type === 'brute' ? 1.5 : 1));
+        if (this.decals.length > 140) this.decals.shift();
+
+        if (e.type === 'bloater') this.explodeBloater(e);
+
+        const ess = Math.min(1, ENEMY[e.type].essence + 0.1 * p.t('scav'));
+        if (Math.random() < ess) this.dropLoot(fx(e), fy(e), 'essence');
+        let band = this.ec ? this.ec.bandageDrop : 0.07;
+        band += 0.04 * p.t('scav');
+        if (!this.ec && p.hp < p.maxHp * 0.3) band = Math.max(band, 0.2);
+        if (this.combo >= 25) band *= 1.5;
+        if (Math.random() < band) this.dropLoot(fx(e) + 10, fy(e), 'bandage');
+
+        if (this.ec && this.ec.explodeZ && e.type !== 'bloater') {
+            this.pools.push(new Pool(fx(e), fy(e) - 4, 'acid', 240));
+            sfx.sfxExplode();
+        }
+    }
+
+    explodeBloater(e) {
+        const x = fx(e), y = fy(e) - 10;
+        sfx.sfxPop(); this.shake = Math.max(this.shake, 12);
+        this.effects.push(new Ring(x, y + 6, 10, 100, 22, '#d4e157', 6));
+        this.burst(x, y - 10, '#9aa64a', 40, { speed: 8 });
+        this.pools.push(new Pool(x, y + 6, 'acid', 300));
+        for (const o of this.enemies) {
+            if (o === e || o.dead || o.spawnTimer > 0) continue;
+            if (dist(fx(o), fy(o), x, y) < 110) this.applyHit(o, 60, fx(o) > x ? 1 : -1, 14, { noCombo: true, source: 'blast' });
+        }
+        if (dist(fx(this.player), fy(this.player), x, y) < 90) this.damagePlayer(ENEMY.bloater.dmg, e, ENEMY.bloater.keg);
+    }
+
+    onBossDeath(e, cause) {
+        this.shake = 26; this.hitStop = 14;
+        sfx.sfxExplode(); sfx.sfxWarlordRoar();
+        this.burst(fx(e), e.y + e.h / 2, '#d32f2f', 80, { speed: 9 });
+        this.burst(fx(e), e.y + e.h / 2, '#222', 40, { speed: 4, shape: 'smoke', grav: -0.05, size: 9 });
+        this.corpses.push(new Corpse(e, 1));
+        this.text(fx(e), e.y - 20, `${BOSS_NAMES[e.type]} falls`, '#ffd77a', 22);
+
+        if (e.type === 'warlord' && !this.ec && this.dayCount >= SURVIVAL_DAYS && this.state === 'PLAYING') {
+            this.triggerSunrise();
+            return;
+        }
+        this.dropLoot(fx(e), fy(e), 'core');
+        if (this.ec && e.type === 'warlord') for (let i = 0; i < 3; i++) { this.dropLoot(fx(e) + i * 15, fy(e), 'meat'); this.dropLoot(fx(e) - i * 15, fy(e), 'bandage'); }
+
+        const bossesLeft = this.enemies.some(o => o.isBoss && !o.dead);
+        if (this.isSiege && !this.isDay && !bossesLeft) {
+            this.peaceful = true; this.isSiege = false;
+            this.setAnnounce('The horde scatters', 'The rest of the night is quiet.');
+            for (const o of this.enemies) {
+                if (o.dead || o.type === 'boar') continue;
+                o.dead = true;
+                this.burst(fx(o), o.y + o.h / 2, '#3a3030', 10, { speed: 2, shape: 'smoke', grav: -0.06, size: 6 });
+            }
+        }
+    }
+
+    // =========================================
+    // ENEMIES
+    // =========================================
+    clampEnemy(e) {
+        if (!(e.type === 'boar' && e.state === 'flee')) e.x = clamp(e.x, 0, WORLD_W - e.w);
+        if (e.type === 'boar' && e.state !== 'flee') e.x = Math.min(e.x, FOREST_END + 240 - e.w / 2);
+        if (e.type !== 'boar' && e.x + e.w > SANCT_START - 6) { e.x = SANCT_START - 6 - e.w; e.vx = Math.min(0, e.vx); }
+        e.y = clamp(e.y, FEET_MIN - e.h, FEET_MAX - e.h);
+        for (const o of OBSTACLES) this.pushOut(e, o);
+    }
+
+    pushOut(e, o) {
+        const fb = { x: e.x + e.w * 0.28, y: e.y + e.h - 10, w: e.w * 0.44, h: 10 };
+        if (!rectHit(fb, o)) return false;
+        const left = fb.x + fb.w - o.x, right = o.x + o.w - fb.x, up = fb.y + fb.h - o.y, down = o.y + o.h - fb.y;
+        const m = Math.min(left, right, up, down);
+        if (m === left) e.x -= left; else if (m === right) e.x += right; else if (m === up) e.y -= up; else e.y += down;
+        return true;
+    }
+
+    // standing in front of the doors, where the horde can actually break in
+    atDojoDoors(e) {
+        const fb = { x: e.x + e.w * 0.2, y: e.y + e.h - 10, w: e.w * 0.6, h: 10 };
+        return rectHit(fb, DOOR_ZONE);
+    }
+
+    targetFor(e) {
+        const p = this.player;
+        const pfx = fx(p), pfy = fy(p);
+        if (e.grudge && !e.grudge.dead && e.grudgeTimer > 0) return { x: fx(e.grudge), y: fy(e.grudge), grudge: e.grudge };
+        if (e.shade && this.isDay) {
+            const near = dist(fx(e), fy(e), pfx, pfy) < 170 || e.aggroTimer > 0;
+            if (!near) return {
+                x: e.anchorX + Math.sin(this.frames * 0.01 + e.seed) * 60,
+                y: e.anchorY + Math.cos(this.frames * 0.013 + e.seed) * 30, wander: true
+            };
+        }
+        const drone = this.isSiege && !this.peaceful && !e.isBoss && e.type !== 'spitter' && e.aggroTimer <= 0;
+        // siege drones spread along the front of the Dojo, never around the back
+        if (drone) return { x: DOJO.x + DOJO.w / 2 + e.dojoOffX * 1.1, y: DOJO.y + DOJO.h + 12 + Math.abs(e.dojoOffY) * 0.4, dojo: true };
+        if (pfx > SANCT_START - 10) return { x: SANCT_START - e.w / 2 - 20 - (e.seed % 50), y: pfy + ((e.seed * 7) % 80) - 40, wait: true };
+        return { x: pfx, y: pfy, player: true };
+    }
+
+    moveToward(e, tx, ty, spd) {
+        const dx = tx - fx(e), dy = ty - fy(e), d = Math.hypot(dx, dy);
+        if (d < 3) return d;
+        e.x += dx / d * spd; e.y += dy / d * spd * 0.9;
+        if (Math.abs(dx) > 2) e.facingRight = dx > 0;
+        return d;
+    }
+
+    updateEnemies() {
+        const p = this.player;
+        for (const e of this.enemies) {
+            if (e.dead) continue;
+            if (e.hitTimer > 0) e.hitTimer--;
+
+            if (e.spawnTimer > 0) {
+                e.spawnTimer--;
+                if (e.spawnTimer % 4 === 0) this.burst(fx(e) + (Math.random() - 0.5) * e.w, fy(e), Math.random() < 0.5 ? '#4a3626' : '#2a2018', 2, { speed: 3, lift: 2 });
+                if (e.isBoss && e.spawnTimer % 20 === 0) this.shake = Math.max(this.shake, 6);
+                continue;
+            }
+
+            if (e.burning) {
+                if (!(this.state === 'SUNRISE' && e.type === 'warlord')) {
+                    e.hp -= Math.max(1.2, e.maxHp / 90);
+                    if (Math.random() < 0.3) this.particles.push(new Particle(fx(e) + (Math.random() - 0.5) * e.w * 0.6, e.y + e.h * 0.3, '#ff9a3c', { speed: 1, angle: -Math.PI / 2, grav: -0.05, life: 25 }));
+                    if (e.hp <= 0) this.killEnemy(e, 0, 'burn');
+                }
+                e.isMoving = false;
+                continue;
+            }
+
+            e.x += e.vx; e.y += e.vy; e.vx *= 0.82; e.vy *= 0.82;
+            if (e.stunTimer > 0) { e.stunTimer--; e.isMoving = false; this.clampEnemy(e); continue; }
+            if (e.biteTimer > 0) e.biteTimer--;
+            if (e.aggroTimer > 0) e.aggroTimer--;
+            if (e.grudgeTimer > 0) e.grudgeTimer--;
+
+            const ox = e.x, oy = e.y;
+            switch (e.type) {
+                case 'boar': this.aiBoar(e); break;
+                case 'spitter': this.aiSpitter(e, false); break;
+                case 'brood': this.aiSpitter(e, true); break;
+                case 'alpha': this.aiAlpha(e); break;
+                case 'warlord': this.aiWarlord(e); break;
+                default: this.aiMelee(e);
+            }
+            // daylight burns shade-dwellers who leave the canopy
+            if (e.shade && this.isDay && fx(e) > FOREST_END + 30) e.burning = true;
+
+            this.clampEnemy(e);
+            if (e.type !== 'boar') {
+                const moved = Math.hypot(e.x - ox, e.y - oy);
+                e.isMoving = moved > 0.15;
+                e.walkPhase += moved * 0.16;
+            }
+        }
+
+        // keep crowds from stacking into one sprite
+        const live = this.enemies.filter(e => !e.dead && e.spawnTimer <= 0 && !e.burning);
+        for (let i = 0; i < live.length; i++) {
+            for (let j = i + 1; j < live.length; j++) {
+                const a = live[i], b = live[j];
+                const dx = fx(b) - fx(a), dy = (fy(b) - fy(a)) * 1.5;
+                const min = (a.w + b.w) * 0.3;
+                const d = Math.hypot(dx, dy);
+                if (d > 0 && d < min) {
+                    const push = (min - d) / 2;
+                    const wa = b.isBoss ? 1 : (a.isBoss ? 0 : 0.5);
+                    a.x -= dx / d * push * wa * 2; b.x += dx / d * push * (1 - wa) * 2;
+                    a.y -= dy / d * push * wa; b.y += dy / d * push * (1 - wa);
+                }
+            }
+        }
+        // separation can shove someone across a boundary, so re-apply the world rules
+        for (const e of live) this.clampEnemy(e);
+
+        this.enemies = this.enemies.filter(e => !e.dead);
+    }
+
+    // ---- generic melee zombie (walker, runner, brute, bloater, shade) ----
+    aiMelee(e) {
+        const p = this.player;
+        const t = this.targetFor(e);
+        const spd = e.speed;
+
+        if (t.wander) { this.moveToward(e, t.x, t.y, spd * 0.35); return; }
+
+        if (t.dojo) {
+            if (this.atDojoDoors(e)) {
+                e.facingRight = fx(e) < DOJO.x + DOJO.w / 2;
+                if (e.biteTimer <= 0) {
+                    e.biteTimer = DOJO_HIT_EVERY;
+                    const dd = Math.max(1, Math.round(e.dojoDmg * this.cfg('zDamage', 1)));
+                    this.dojo.hp = Math.max(0, this.dojo.hp - (this.ec && this.ec.ohk ? 9999 : dd));
+                    this.burst(fx(e) + (e.facingRight ? 12 : -12), e.y + e.h * 0.4, '#8d6037', 5, { speed: 3 });
+                    this.text(DOJO.x + DOJO.w / 2, DOJO.y - 120, `-${dd}`, '#ffcc33', 14);
                     this.shake = Math.max(this.shake, 2);
-                    this.createParticle(this.player.x + 20 + (Math.random()*20-10), this.player.y + 20, '#55ff55', this.currentRoom);
-                    this.createFloatText(this.player.x + 20, this.player.y, `-${burnDmg} (Poison)`, "#55ff55", this.currentRoom);
+                    if (e.type === 'bloater') this.killEnemy(e, 0, 'fuse');
                 }
+            } else this.moveToward(e, t.x, t.y, spd);
+            return;
+        }
+
+        if (t.wait) { this.moveToward(e, t.x, t.y, spd * 0.6); return; }
+
+        const tx = t.x, ty = t.y;
+        const reach = e.w * 0.5 + 14;
+        const dx = tx - fx(e), dy = ty - fy(e);
+        const inRange = Math.abs(dx) < reach && Math.abs(dy) < 18;
+
+        if (e.type === 'bloater') {
+            if (inRange && !t.grudge) {
+                e.fuse++;
+                if (e.fuse === 1) sfx.sfxFrustratedGroan();
+                if (e.fuse >= 45) this.killEnemy(e, 0, 'fuse');
             } else {
-                this.player.sanctuaryBurn = Math.max(0, (this.player.sanctuaryBurn || 0) - 0.25);
+                e.fuse = Math.max(0, e.fuse - 1);
+                this.moveToward(e, tx, ty, spd);
             }
+            return;
         }
 
-        this.frames++;
-        if (this.comboTimer > 0) {
-            this.comboTimer--;
-            if (this.comboTimer <= 0) this.combo = 0;
-        }
-
-        if (this.player.demonRushTimer > 0) this.player.demonRushTimer--;
-        if (this.spinCooldown > 0) this.spinCooldown--; 
-        if (this.player.iFrames > 0) this.player.iFrames--;
-        if (this.player.mutationGlow > 0) this.player.mutationGlow--; 
-
-        this.decals.forEach(d => { if (d.room === this.currentRoom) d.update(); }); 
-        this.decals = this.decals.filter(d => d.life > 0);
-        
-        let oldHp = this.player.hp;
-        let pFeetX = this.player.x + 20; let pFeetY = this.player.y + 35;
-        
-        this.damagePools.forEach(dp => {
-            if (dp.room !== this.currentRoom) return;
-            dp.update();
-            if (this.player.iFrames <= 0) {
-                let dx = pFeetX - dp.x; let dy = pFeetY - dp.y;
-                if (((dx*dx)/(25*25) + (dy*dy)/(12*12)) <= 1) {
-                    let pDmg = 10;
-                    if (this.gameMode === 'ENDLESS' && UI.endlessConfig.ohk) pDmg = 9999;
-                    this.player.hp = Math.max(0, this.player.hp - pDmg); 
-                    this.combo = 0; 
-                    this.shake = Math.max(this.shake, 2); this.player.iFrames = 15; sfx.sfxHit();
+        if (e.attackWind > 0) {
+            if (--e.attackWind === 0) {
+                e.biteTimer = 50;
+                e.vx += (e.facingRight ? 1 : -1) * 3;
+                if (Math.abs(tx - fx(e)) < reach + 10 && Math.abs(ty - fy(e)) < 24) {
+                    if (t.grudge) this.grudgeStrike(e, t.grudge);
+                    else this.damagePlayer(e.dmg, e, e.keg);
                 }
             }
-        });
-        this.damagePools = this.damagePools.filter(dp => dp.life > 0);
-        if (this.player.hp < oldHp) this.damageFlash = 30;
+            return;
+        }
+        if (inRange && e.biteTimer <= 0) { e.attackWind = e.windupMax; e.facingRight = dx > 0; return; }
+        // keep a little gap instead of standing inside the player
+        if (Math.abs(dx) > reach * 0.6 || Math.abs(dy) > 10) this.moveToward(e, tx - Math.sign(dx) * reach * 0.5, ty, spd);
+        else e.facingRight = dx > 0;
+    }
 
-        if (this.hasInfiniteStamina()) this.player.stamina = this.player.maxStamina;
-
-        if (this.state === 'SUNRISE') {
-            this.sunriseTimer--;
-            this.enemies.forEach(z => { 
-                if (z.room !== this.currentRoom) return;
-                if (z.type !== 'boar' && z.type !== 'fish') z.burning = true; 
-                if (z.type === 'warlord') {
-                    if (this.sunriseTimer > 50) {
-                        if (this.sunriseTimer % 15 === 0) { 
-                            this.shake = 8; sfx.sfxExplode(); 
-                            for(let i=0; i<40; i++) this.createParticle(z.x + Math.random() * z.w, z.y + Math.random() * z.h, '#ff9900', this.currentRoom);
-                        }
-                    } else if (this.sunriseTimer === 50) { z.hp = 0; }
-                } else { if(z.type !== 'boar' && z.type !== 'fish') z.hp -= 5; }
-            }); 
-            if (this.sunriseTimer <= 0) UI.showVictory();
-        } else if (this.state === 'TUTORIAL') {
-            this.updateTutorialLogic();
+    grudgeStrike(e, target) {
+        if (e.type === 'brute') {
+            target.dead = true;
+            this.corpses.push(new Corpse(target, e.facingRight ? 1 : -1, true));
+            this.text(fx(e), e.y - 20, 'Yeet!', '#ffd54f', 18);
+            this.shake = Math.max(this.shake, 12); sfx.sfxHeavyHit();
         } else {
-            this.timeTimer--; 
-            
-            if (!this.isSiege && this.player.stunTimer <= 0) {
-                if (this.player.isMoving || this.player.isAttacking) {
-                    this.player.fatigue = Math.min(100, this.player.fatigue + 0.03);
+            target.hp -= 10; target.hitTimer = 5;
+            this.text(fx(target), target.y, '-10', '#ffffff', 14);
+            if (target.hp <= 0) this.killEnemy(target, e.facingRight ? 1 : -1, 'hit');
+        }
+        e.grudge = null;
+    }
+
+    // ---- spitter & broodmother ----
+    aiSpitter(e, brood) {
+        const p = this.player;
+        const t = this.targetFor(e);
+        if (t.wait || t.wander) { this.moveToward(e, t.x, t.y, e.speed * 0.6); return; }
+        const pfx = fx(p), pfy = fy(p);
+        const d = dist(fx(e), fy(e), pfx, pfy);
+        const near = brood ? 230 : 170, far = brood ? 320 : 260;
+        if (e.attackWind <= 0) {
+            if (d < near) this.moveToward(e, fx(e) - (pfx - fx(e)), fy(e) - (pfy - fy(e)), e.speed);
+            else if (d > far) this.moveToward(e, pfx, pfy, e.speed);
+            else { e.y += Math.sin(this.frames * 0.03 + e.seed) * e.speed * 0.6; }
+            e.facingRight = pfx > fx(e);
+        }
+        const onScreen = fx(e) > this.camera.x && fx(e) < this.camera.x + W;
+        e.shootTimer--;
+        if (e.shootTimer <= 0 && e.attackWind <= 0 && d < 460 && onScreen) e.attackWind = 20;
+        if (e.attackWind > 0 && --e.attackWind === 0) {
+            const sx = fx(e) + (e.facingRight ? 10 : -10), sy = e.y + e.h * 0.35;
+            const ang = Math.atan2(p.y + 22 - sy, pfx - sx);
+            const shots = brood ? [-0.3, 0, 0.3] : [0];
+            for (const o of shots) this.projectiles.push(new Projectile(sx, sy, Math.cos(ang + o) * 4.2, Math.sin(ang + o) * 4.2, e));
+            e.shootTimer = brood ? 85 : 120 + Math.random() * 40;
+            sfx.sfxSpit();
+        }
+        if (brood) {
+            e.summonTimer--;
+            if (e.summonTimer <= 0) {
+                e.summonTimer = 360;
+                const kids = this.enemies.filter(o => o.hatchling && !o.dead).length;
+                for (let i = 0; i < 2 && kids + i < 6; i++) {
+                    const k = this.makeEnemy('runner', fx(e) - 18 + (i ? 30 : -30), fy(e) - 36, { hpMult: 0.6 });
+                    k.hatchling = true; k.spawnTimer = k.spawnMax = 30; k.aggroTimer = 600;
                 }
-            }
-            
-            if (this.isDay && this.state === 'PLAYING') {
-                if (this.currentRoom === 'FOREST') {
-                    let activeBoars = this.enemies.filter(z => z.type === 'boar' && z.hp > 0).length;
-                    if (activeBoars < 3 && Math.random() < 0.005) {
-                        let bx = this.camera.x + (Math.random() > 0.5 ? canvas.width + 100 : -100);
-                        bx = Math.max(0, Math.min(this.worldWidth, bx));
-                        let by = 80 + Math.random() * (canvas.height - 150);
-                        let boar = new Zombie(bx, by, 70, 2.5, 'boar', bx, by, 50, true);
-                        boar.room = 'FOREST';
-                        this.enemies.push(boar);
-                    }
-                } else if (this.currentRoom === 'RIVER') {
-                    let activeFish = this.enemies.filter(z => z.type === 'fish' && z.hp > 0).length;
-                    if (activeFish < 4 && Math.random() < 0.01) {
-                        this.spawnFish();
-                    }
-                }
-            }
-
-            if (this.timeTimer <= 0) { 
-                this.mounds.forEach(m => {
-                    if (m.state === 'planted_day') m.state = 'bloomed';
-                    else if (m.state === 'planted_night') m.state = 'planted_day';
-                });
-
-                if (this.gameMode === 'SURVIVAL' && this.dayCount === 21 && !this.isDay) { this.triggerSunrise(); return; }
-
-                this.timeTimer = this.phaseDur; 
-                this.isDay = !this.isDay; 
-                this.announceTimer = 180; 
-                this.subAnnounceText = "";
-
-                if (this.isDay) {
-                    this.dayCount++; this.isSiege = false; this.announceText = "DAY " + this.dayCount;
-                    this.peacefulNight = false;
-
-                    if (this.gameMode === 'ENDLESS' && UI.endlessConfig.lavaMode) {
-                        let dp = new DamagePool(Math.random()*this.worldWidth, 70 + Math.random()*(canvas.height - 90), 999999);
-                        dp.room = this.currentRoom;
-                        this.damagePools.push(dp);
-                        let lavaCount = this.damagePools.filter(d => d.life > 100000).length;
-                        if (lavaCount > 30) { let oldestLavaIdx = this.damagePools.findIndex(d => d.life > 100000); if (oldestLavaIdx > -1) this.damagePools.splice(oldestLavaIdx, 1); }
-                    }
-
-                    this.spawnBoars();
-
-                    this.enemies.forEach(z => { if (z.type !== 'straggler' && z.type !== 'boar' && z.type !== 'fish') z.burning = true; });
-                    this.projectiles = []; this.corpses = []; 
-                    this.damagePools = this.damagePools.filter(dp => dp.life > 100000); 
-                    
-                    // KEEP ORBS AT SUNRISE, PURGE OLD SURVIVAL LOOT
-                    this.loot = this.loot.filter(l => l.type.startsWith('orb_')); 
-                    
-                    if (this.gameMode === 'ENDLESS' && UI.endlessConfig.dojoRegen) { 
-                        this.dojo.hp = Math.min(this.dojo.maxHp, this.dojo.hp + (this.dojo.maxHp * 0.25)); 
-                        for(let i=0; i<20; i++) this.createParticle(this.dojo.x+30, this.dojo.y+20, '#4caf50', 'HUB'); 
-                    }
-
-                } else {
-                    
-                    let forcedOut = false;
-                    let conditionLoss = 0;
-                    let staminaLoss = 0;
-                    
-                    this.enemies = this.enemies.filter(z => z.type !== 'fish');
-                    
-                    if (this.currentRoom === 'FOREST' || this.currentRoom === 'RIVER') {
-
-                        let pSpeed = this.player.speed * (this.gameMode === 'ENDLESS' ? UI.endlessConfig.pSpeed : 1);
-                        let distToDojo = Math.hypot((this.dojo.x + 30) - (this.player.x + 20), (this.dojo.y + 20) - (this.player.y + 20));
-                        let framesToReturn = Math.floor(distToDojo / pSpeed);
-                        
-                        conditionLoss = (framesToReturn / 60) * 1.5; 
-                        staminaLoss = (framesToReturn / 60) * 5; 
-                        
-                        this.player.fatigue = Math.min(100, this.player.fatigue + conditionLoss);
-                        this.player.stamina = Math.max(0, this.player.stamina - staminaLoss);
-                        
-                        forcedOut = this.currentRoom;
-                        this.changeRoom('HUB');
-                        this.player.x = this.dojo.x;
-                        this.player.y = this.dojo.y + 40;
-                        this.camera.x = Math.max(0, Math.min(this.worldWidth - canvas.width, this.player.x - (canvas.width / 2)));
-                    }
-
-                    this.loot = this.loot.filter(l => l.room === 'HUB' || l.type.startsWith('orb_'));
-
-                    this.enemies.forEach(z => { if (z.type === 'straggler') z.type = 'night'; });
-                    
-                    let bmTrigger = this.dayCount % 7 === 0;
-                    if (this.gameMode === 'ENDLESS') bmTrigger = this.dayCount % UI.endlessConfig.bmFreq === 0;
-
-                    if (bmTrigger) { 
-                        this.isSiege = true; this.dojo.hp = this.dojo.maxHp; this.announceText = "BLOOD MOON SIEGE"; 
-                        if (this.dayCount === 21 && this.gameMode === 'SURVIVAL') { 
-                            this.subAnnounceText = "FINE. I WILL TEAR IT DOWN MYSELF."; this.spawnZombie(null, null, 'warlord'); 
-                        } 
-                        else if (this.gameMode === 'ENDLESS' && this.dayCount % UI.endlessConfig.bossFreq === 0) {
-                            this.subAnnounceText = "THE HORDE RETURNS."; let warlordCount = Math.min(UI.endlessConfig.bossCap, 1 + Math.floor((this.dayCount - UI.endlessConfig.bossFreq) / 14));
-                            for(let w=0; w<warlordCount; w++) this.spawnZombie(null, null, 'warlord');
-                        } else {
-                            sfx.sfxWarlordRoar(); this.shake = 15;
-                            if (this.dayCount % 14 === 7) {
-                                this.subAnnounceText = "THE ALPHA AWAKENS."; 
-                                this.spawnZombie(null, null, 'alpha'); 
-                            } else {
-                                this.subAnnounceText = "THE BROODMOTHER RISES.";
-                                this.spawnZombie(null, null, 'brood'); 
-                            }
-                        }
-                    } else { this.announceText = "NIGHT " + this.dayCount; }
-
-                    if (forcedOut) {
-                        this.shake = 15; sfx.sfxYeet();
-                        let msg = forcedOut === 'FOREST' ? "THE BEASTS AWOKE!" : "THE DROWNED ROSE!";
-                        this.createFloatText(this.player.x + 20, this.player.y - 40, msg, "#ff0000", 'HUB');
-                        this.createFloatText(this.player.x + 20, this.player.y - 20, "Retreated to the safety of the Dojo.", "#ffcc00", 'HUB');
-                        if (conditionLoss > 0) {
-                            this.createFloatText(this.player.x + 20, this.player.y, `+${Math.floor(conditionLoss)} FATIGUE`, "#ff0000", 'HUB');
-                        }
-                    }
-                }
-            }
-            if (this.announceTimer > 0) this.announceTimer--;
-
-            let maxEndlessZ = this.gameMode === 'ENDLESS' ? UI.endlessConfig.maxZ : 25;
-            let activeZombies = this.enemies.filter(z => (z.room === this.currentRoom && z.type !== 'straggler' && z.type !== 'warlord') && z.hp > 0).length;
-            let maxZombies = this.isSiege ? 15 : Math.min(maxEndlessZ, 8 + (this.dayCount * 2)); 
-            let baseSpawn = this.gameMode === 'ENDLESS' ? 0.02 * UI.endlessConfig.spawnRate : 0.02;
-            let spawnRate = this.isSiege ? 0.05 : baseSpawn + (this.dayCount * 0.005);
-            
-            if (!this.isDay && !this.peacefulNight && this.announceTimer <= 0 && activeZombies < maxZombies && Math.random() < spawnRate) {
-                this.spawnZombie(null, null, 'night');
+                this.text(fx(e), e.y - 10, 'Hatchlings!', '#e1bee7', 15);
             }
         }
+    }
 
-        let currentAttackCost = this.isSiege ? 0 : this.player.attackCost; let currentSpecialCost = this.isSiege ? 0 : this.player.specialCost;
-        let hasInf = this.hasInfiniteStamina() || (this.player.demonRushTimer > 0);
-
-        if ((keys.punch || Input.mouse.left) && !this.player.isAttacking && this.player.stunTimer <= 0 && (this.player.stamina >= currentAttackCost || hasInf)) this.doAttack(false);
-        if ((keys.spin || Input.mouse.right) && !this.player.isAttacking && this.player.stunTimer <= 0 && (this.player.stamina >= currentSpecialCost || hasInf) && this.spinCooldown <= 0) { this.doAttack(true); Input.shiftReady = false; }
-        
-        if (keys.eat && Input.rReady && this.state !== 'TUTORIAL' && !this.isSiege && this.player.stunTimer <= 0) { 
-            if (this.food > 0) {
-                this.food--; 
-                let fatHeal = 50 + Math.floor(Math.random() * 26);
-                this.player.fatigue = Math.max(0, this.player.fatigue - fatHeal); 
-                let healAmount = Math.floor(this.player.maxHp * 0.15); 
-                let actualHeal = Math.min(this.player.maxHp - this.player.hp, healAmount);
-                this.player.hp += actualHeal;
-                this.createFloatText(this.player.x+20, this.player.y, `+${actualHeal} HP / -${fatHeal} FATIGUE`, "#44aa44", this.currentRoom); 
+    // ---- the Alpha: ground slam ----
+    aiAlpha(e) {
+        const p = this.player;
+        const d = dist(fx(e), fy(e), fx(p), fy(p));
+        if (e.state === 'slamWind') {
+            if (--e.stateTimer <= 0) {
+                e.state = 'chase'; e.specialTimer = 230;
+                sfx.sfxSlam(); this.shake = 18;
+                this.effects.push(new Ring(fx(e), fy(e), 20, 150, 24, '#ff6b5e', 7));
+                this.burst(fx(e), fy(e), '#5a4030', 30, { speed: 7, lift: 3 });
+                if (d < 150) {
+                    if (this.damagePlayer(22, e, e.keg)) { const dir = fx(p) > fx(e) ? 1 : -1; p.kvx = dir * 10; }
+                }
             }
-            Input.rReady = false; 
+            return;
+        }
+        e.specialTimer--;
+        if (e.specialTimer <= 0 && d < 320) { e.state = 'slamWind'; e.stateTimer = 45; sfx.sfxWarlordRoar(); return; }
+        this.aiMelee(e);
+    }
+
+    // ---- Magatsuhi's Vessel ----
+    aiWarlord(e) {
+        const p = this.player;
+        if (!e.phase2 && e.hp < e.maxHp * 0.5) {
+            e.phase2 = true; e.speed *= 1.3; e.windupMax = 18;
+            this.text(fx(e), e.y - 20, 'The armor cracks...', '#ff6b5e', 18);
+            sfx.sfxWarlordRoar(); this.shake = 20;
+        }
+        const d = dist(fx(e), fy(e), fx(p), fy(p));
+
+        if (e.castTimer > 0) {
+            if (--e.castTimer === 0) {
+                const n = e.phase2 ? 5 : 3;
+                for (let i = 0; i < n; i++) {
+                    const a = Math.random() * Math.PI * 2, r = i === 0 ? 0 : 40 + Math.random() * 70;
+                    this.pools.push(new Pool(fx(p) + Math.cos(a) * r, fy(p) - 6 + Math.sin(a) * r * 0.5, 'erupt', 220, 45));
+                }
+                sfx.sfxExplode(); this.shake = 10;
+                this.text(fx(e), e.y - 20, 'Eruption', '#ff6b5e', 16);
+            }
+            return;
+        }
+        if (e.state === 'swordWind') {
+            if (--e.stateTimer <= 0) {
+                e.state = 'slash'; e.stateTimer = 14;
+                const dir = e.facingRight ? 1 : -1;
+                const hb = { x: dir > 0 ? fx(e) : fx(e) - 110, y: e.y + e.h * 0.2, w: 110, h: e.h * 0.85 };
+                this.effects.push(new Slash(fx(e) + dir * 50, e.y + e.h * 0.45, dir, true));
+                this.effects.push(new Slash(fx(e) + dir * 70, e.y + e.h * 0.5, dir, true));
+                sfx.sfxHeavyHit();
+                if (rectHit(hb, { x: p.x + 8, y: p.y + 4, w: 24, h: 34 })) {
+                    if (this.damagePlayer(e.dmg, e, e.keg)) p.kvx = dir * 9;
+                }
+            }
+            return;
+        }
+        if (e.state === 'slash') { if (--e.stateTimer <= 0) { e.state = 'chase'; e.biteTimer = 40; } return; }
+
+        e.specialTimer--; e.summonTimer--;
+        if (e.specialTimer <= 0) { e.castTimer = 60; e.specialTimer = e.phase2 ? 220 : 320; return; }
+        if (e.summonTimer <= 0) {
+            e.summonTimer = 480;
+            for (let i = 0; i < 3; i++) {
+                const a = (i / 3) * Math.PI * 2 + Math.random();
+                const z = this.makeEnemy('walker', fx(p) + Math.cos(a) * 190 - 20, fy(p) + Math.sin(a) * 90 - 40);
+                z.spawnTimer = z.spawnMax = 50; z.aggroTimer = 900;
+            }
+            this.text(fx(e), e.y - 20, 'Rise.', '#ff6b5e', 18);
         }
 
-        let pSpeed = this.player.speed;
-        if (this.gameMode === 'ENDLESS') pSpeed *= UI.endlessConfig.pSpeed;
-        if (this.player.demonRushTimer > 0) pSpeed *= 1.5;
-        
-        if (this.currentRoom === 'RIVER' && this.player.y > 180) {
-            pSpeed *= 0.6; 
+        const t = this.targetFor(e);
+        if (t.wait) { this.moveToward(e, t.x, t.y, e.speed * 0.6); return; }
+        if (d < 90 && e.biteTimer <= 0) {
+            e.state = 'swordWind'; e.stateTimer = e.windupMax; e.facingRight = fx(p) > fx(e);
+            return;
         }
+        if (d > 60) this.moveToward(e, fx(p), fy(p), e.speed);
+    }
 
-        if (this.player.stunTimer <= 0) {
-            this.player.isMoving = (keys.left || keys.right || keys.up || keys.down);
-            
-            if (keys.left && !keys.right) { this.player.x -= pSpeed; this.player.facingRight = false; }
-            if (keys.right && !keys.left) { this.player.x += pSpeed; this.player.facingRight = true; }
-            if (keys.up && !keys.down) this.player.y -= pSpeed;
-            if (keys.down && !keys.up) this.player.y += pSpeed;
-        } else {
-            this.player.isMoving = false;
+    // ---- boar: charge, crash, punish ----
+    aiBoar(e) {
+        const p = this.player;
+        const pfx = fx(p), pfy = fy(p);
+        e.isMoving = false;
+        if (e.state === 'flee') {
+            // boars always bolt back into the forest, swerving around the master if he's in the way
+            e.x -= e.speed * 2; e.isMoving = true; e.facingRight = false;
+            if (Math.abs(fx(e) - pfx) < 170 && pfx < fx(e)) e.y += (fy(e) >= pfy ? 1 : -1) * e.speed * 1.4;
+            if (this.frames % 5 === 0) this.burst(fx(e), fy(e), 'rgba(200,180,140,0.6)', 1, { speed: 1, shape: 'smoke', size: 5, grav: -0.02 });
+            if (e.x < -90 || e.x > WORLD_W + 90) e.dead = true;
+            return;
         }
-        
-        let pMaxY = canvas.height - this.player.size - 5;
-        let pMinY = 65;
-
-        if (this.currentRoom === 'HUB' && this.player.x > 1750) {
-            pMinY = 100;
-            pMaxY = canvas.height - this.player.size - 40;
-        } 
-
-        this.player.x = Math.max(0, Math.min(this.worldWidth - this.player.size, this.player.x)); 
-        this.player.y = Math.max(pMinY, Math.min(pMaxY, this.player.y)); 
-
-        if (this.state === 'PLAYING') {
-            if (this.currentRoom === 'HUB') {
-                if (this.isDay) {
-                    if (this.player.y <= 70 && keys.up && this.player.x < 1700) {
-                        this.changeRoom('FOREST');
-                        this.player.x = this.dojo.x;
-                        this.player.y = canvas.height - this.player.size - 15;
-                    }
-                    else if (this.player.y >= canvas.height - this.player.size - 10 && keys.down && this.player.x < 1700) {
-                        this.changeRoom('RIVER');
-                        this.player.x = this.dojo.x;
-                        this.player.y = 75;
-                    }
-                }
-            } else if (this.currentRoom === 'FOREST') {
-                if (this.player.y >= canvas.height - this.player.size - 10 && keys.down) {
-                    this.changeRoom('HUB');
-                    this.player.x = this.dojo.x; 
-                    this.player.y = this.dojo.y - 50; 
-                }
-            } else if (this.currentRoom === 'RIVER') {
-                if (this.player.y <= 70 && keys.up) {
-                    this.changeRoom('HUB');
-                    this.player.x = this.dojo.x; 
-                    this.player.y = this.dojo.y + 50; 
-                }
+        if (e.state === 'stunned') {
+            if (--e.stateTimer <= 0) {
+                if (e.damagedWhileStunned) {
+                    e.state = 'flee';
+                    this.text(fx(e), e.y - 16, 'It bolts!', '#ffd77a', 15);
+                } else e.state = 'idle';
             }
+            return;
         }
-
-        let screenCenterX = this.player.x - this.camera.x;
-        let dzLeft = (canvas.width / 2) - (this.camera.deadzoneW / 2);
-        let dzRight = (canvas.width / 2) + (this.camera.deadzoneW / 2);
-        if (screenCenterX > dzRight) this.camera.x = this.player.x - dzRight;
-        else if (screenCenterX < dzLeft) this.camera.x = this.player.x - dzLeft;
-        this.camera.x = Math.max(0, Math.min(this.worldWidth - canvas.width, this.camera.x));
-
-        let regenRate = 0.1 + ((100 - this.player.fatigue) / 100) * 1.5; 
-        if ((!this.player.isAttacking || this.player.hasMomentum) && this.player.stamina < this.player.maxStamina && !this.hasInfiniteStamina() && this.player.stunTimer <= 0) {
-            this.player.stamina += regenRate;
+        if (e.state === 'windup') {
+            e.facingRight = pfx > fx(e);
+            if (--e.stateTimer <= 0) {
+                e.state = 'charge';
+                const ang = Math.atan2(pfy - fy(e), pfx - fx(e));
+                e.chargeVx = Math.cos(ang) * 15; e.chargeVy = Math.sin(ang) * 15 * 0.8;
+                e.targetDist = dist(fx(e), fy(e), pfx, pfy) + 90; e.travelled = 0;
+                e.facingRight = e.chargeVx > 0;
+            }
+            return;
         }
-
-        let pK = Input.isTouchDevice ? "REST" : Input.getDisplayKey(Input.userKeys.sleep);
-
-        if (this.currentRoom === 'HUB' && this.player.x > 1800) {
-            for (let m of this.mounds) {
-                if (Math.hypot((this.player.x+20) - (m.x+25), (this.player.y+20) - (m.y+15)) < 60) {
-                    if (m.state === 'empty' && this.player.demonBlood > 0) {
-                        this.activePrompt = { text: `Press [${pK}] to Plant Blood`, action: 'plant', target: m };
-                    } else if (m.state === 'bloomed') {
-                        this.activePrompt = { text: `Press [${pK}] to Harvest Cure`, action: 'harvest', target: m };
-                    }
-                    break;
-                }
-            }
-        } else if (this.currentRoom === 'HUB' && this.isDay && Math.abs(this.player.x - this.dojo.x) < 60 && Math.abs(this.player.y - this.dojo.y) < 60 && this.state !== 'TUTORIAL') {
-            this.activePrompt = { text: `Press [${pK}] to Sleep (1 Meat)`, action: 'sleep' };
-        } 
-        
-        if (this.player.demonBlood > 0 && !this.activePrompt.action) {
-            if (this.player.infection >= 2.0) {
-                this.activePrompt = { text: `Infection too high!`, action: null };
-            } else {
-                this.activePrompt = { text: `Press [${pK}] to Drink Blood`, action: 'drink' };
-            }
-        }
-
-        if (keys.sleep && Input.eReady) {
-            if (this.activePrompt.action) {
-                Input.eReady = false;
-                
-                if (this.activePrompt.action === 'sleep') {
-                    if (this.food > 0) {
-                        this.food--;
-                        let timeRemainingPct = this.timeTimer / this.phaseDur; 
-                        let healAmount = Math.floor(this.player.maxHp * (0.1 + (timeRemainingPct * 0.4))); 
-                        this.player.fatigue = 0; 
-                        this.player.sanctuaryBurn = 0;
-                        this.player.hp = Math.min(this.player.maxHp, this.player.hp + healAmount);
-                        for(let i=0; i<15; i++) this.createParticle(this.player.x+15, this.player.y+15, '#44aa44', 'HUB'); 
-                        this.createFloatText(this.player.x+20, this.player.y, `+${healAmount} HP`, "#44aa44", 'HUB');
-                        this.createFloatText(this.player.x+20, this.player.y-20, "-1 MEAT", "#ffcc00", 'HUB');
-                        this.sleepFade = 60; 
-                    } else { this.createFloatText(this.player.x+20, this.player.y, "NEED MEAT!", "#d32f2f", 'HUB'); }
-                } 
-                else if (this.activePrompt.action === 'plant') {
-                    this.player.demonBlood--;
-                    this.activePrompt.target.state = this.isDay ? 'planted_day' : 'planted_night';
-                    sfx.sfxLevelUp();
-                    for(let i=0; i<10; i++) this.createParticle(this.activePrompt.target.x+25, this.activePrompt.target.y+15, '#d32f2f', 'HUB'); 
-                }
-                else if (this.activePrompt.action === 'harvest') {
-                    this.activePrompt.target.state = 'empty';
-                    this.player.infection = 0;
-                    sfx.sfxVictory();
-                    this.damageFlash = 30; 
-                    this.createFloatText(this.player.x+20, this.player.y-20, "INFECTION CURED!", "#00e5ff", 'HUB');
-                    for(let i=0; i<30; i++) this.createParticle(this.activePrompt.target.x+25, this.activePrompt.target.y+15, '#00e5ff', 'HUB'); 
-                }
-                else if (this.activePrompt.action === 'drink') {
-                    let prevSkull = Math.floor(this.player.infection);
-                    this.player.demonBlood--;
-                    this.player.demonRushTimer = 360;
-                    
-                    let newInf = this.player.infection + 0.15;
-                    if (newInf >= 3.0) {
-                        this.player.infection = 2.99; 
-                        this.player.stunTimer = 90; 
-                        sfx.sfxFrustratedGroan();
-                        this.shake = Math.max(this.shake, 15);
-                        this.damageFlash = 30;
-                        this.createFloatText(this.player.x+20, this.player.y-40, "SHATTERED BLOOD!", "#d32f2f", this.currentRoom);
-                    } else {
-                        this.player.infection = newInf;
-                        if (Math.floor(this.player.infection) > prevSkull) {
-                            this.player.stunTimer = 90; 
-                            sfx.sfxFrustratedGroan();
-                            this.shake = Math.max(this.shake, 15);
-                            this.damageFlash = 30;
-                            this.createFloatText(this.player.x+20, this.player.y-40, "SHATTERED BLOOD!", "#d32f2f", this.currentRoom);
-                        } else {
-                            sfx.sfxLore(); 
-                            this.shake = Math.max(this.shake, 8);
-                            for(let i=0; i<15; i++) this.createParticle(this.player.x+20, this.player.y+20, '#ff0000', this.currentRoom);
-                            this.createFloatText(this.player.x+20, this.player.y-20, "DEMON RUSH!", "#ff0000", this.currentRoom);
-                        }
-                    }
-                }
-            } else if (this.player.demonBlood > 0 && this.player.infection < 2.0) {
-                Input.eReady = false;
-                let prevSkull = Math.floor(this.player.infection);
-                this.player.demonBlood--;
-                this.player.demonRushTimer = 360;
-                
-                let newInf = this.player.infection + 0.15;
-                if (newInf >= 3.0) {
-                    this.player.infection = 2.99; 
-                    this.player.stunTimer = 90; 
-                    sfx.sfxFrustratedGroan();
-                    this.shake = Math.max(this.shake, 15);
-                    this.damageFlash = 30;
-                    this.createFloatText(this.player.x+20, this.player.y-40, "SHATTERED BLOOD!", "#d32f2f", this.currentRoom);
-                } else {
-                    this.player.infection = newInf;
-                    if (Math.floor(this.player.infection) > prevSkull) {
-                        this.player.stunTimer = 90; 
-                        sfx.sfxFrustratedGroan();
-                        this.shake = Math.max(this.shake, 15);
-                        this.damageFlash = 30;
-                        this.createFloatText(this.player.x+20, this.player.y-40, "SHATTERED BLOOD!", "#d32f2f", this.currentRoom);
-                    } else {
-                        sfx.sfxLore(); 
-                        this.shake = Math.max(this.shake, 8);
-                        for(let i=0; i<15; i++) this.createParticle(this.player.x+20, this.player.y+20, '#ff0000', this.currentRoom);
-                        this.createFloatText(this.player.x+20, this.player.y-20, "DEMON RUSH!", "#ff0000", this.currentRoom);
-                    }
-                }
-            } else if (this.player.demonBlood > 0 && this.player.infection >= 2.0) {
-                Input.eReady = false;
-                sfx.sfxFrustratedGroan();
-                this.createFloatText(this.player.x+20, this.player.y-20, "INFECTION TOO HIGH!", "#d32f2f", this.currentRoom);
-            }
-        }
-
-        this.loot.forEach((item, index) => {
-            if (item.room !== this.currentRoom) return;
-            if (this.rectIntersect(this.player.x, this.player.y, 40, 40, item.x, item.y, 30, 30)) {
-                
-                if (item.type === 'orb_momentum') {
-                    this.player.hasMomentum = true;
-                    this.player.maxHp += 50; this.player.hp = this.player.maxHp;
-                    sfx.sfxLevelUp(); this.damageFlash = 20;
-                    this.createFloatText(this.player.x+20, this.player.y-40, "AWAKENING: MOMENTUM!", "#00e5ff", this.currentRoom);
-                    this.createFloatText(this.player.x+20, this.player.y-20, "+50 MAX HP", "#44aa44", this.currentRoom);
-                } 
-                else if (item.type === 'orb_vampirism') {
-                    this.player.hasVampirism = true;
-                    this.player.maxHp += 50; this.player.hp = this.player.maxHp;
-                    sfx.sfxLevelUp(); this.damageFlash = 20;
-                    this.createFloatText(this.player.x+20, this.player.y-40, "AWAKENING: VAMPIRISM!", "#ff1744", this.currentRoom);
-                    this.createFloatText(this.player.x+20, this.player.y-20, "+50 MAX HP", "#44aa44", this.currentRoom);
-                }
-                else if (item.type === 'bandage') { 
-                    let healAmount = Math.floor(this.player.maxHp * 0.25);
-                    let heal = Math.min(this.player.maxHp - this.player.hp, healAmount); 
-                    this.player.hp += heal; 
-                    for(let i=0; i<15; i++) this.createParticle(this.player.x+15, this.player.y+15, '#44aa44', this.currentRoom); 
-                    if (heal > 0) this.createFloatText(this.player.x+20, this.player.y, `+${heal}`, "#44aa44", this.currentRoom);
-                } 
-                else if (item.type === 'food') { 
-                    this.food++; 
-                } 
-                else if (item.type === 'blood') {
-                    this.player.demonBlood++;
-                    sfx.sfxLore();
-                    this.createFloatText(this.player.x+20, this.player.y-10, "+1 BLOOD", "#d32f2f", this.currentRoom);
-                }
-                this.loot.splice(index, 1); 
-            }
-        });
-
-        this.projectiles.forEach((p, index) => {
-            if (p.room !== this.currentRoom || p.markedForDeletion) return;
-            
-            p.update(); 
-            let exploded = false;
-            
-            if (this.player.isAttacking && this.player.isSpinning && !p.reflected) {
-                if (Math.hypot((this.player.x + 20) - p.x, (this.player.y + 20) - p.y) < 70) {
-                    p.vx *= -1.5; p.vy *= -1.5; p.reflected = true; p.life = 250;
-                    for(let i=0; i<10; i++) this.createParticle(p.x, p.y, '#00ffff', this.currentRoom); 
-                    this.createFloatText(p.x, p.y-10, "PARRY!", "#00ffff", this.currentRoom); 
-                    this.shake = Math.max(this.shake, 5); if (this.hitStop <= 0) { this.hitStop = 3; sfx.sfxParry(); }
-                }
-            }
-            
-            let pHurtbox = { x: this.player.x + 10, y: this.player.y + 5, w: 20, h: 30 };
-            if (!p.reflected && this.player.iFrames <= 0 && this.rectIntersect(p.x - 5, p.y - 5, 10, 10, pHurtbox.x, pHurtbox.y, pHurtbox.w, pHurtbox.h)) exploded = true;
-            
-            if (!exploded) { 
-                this.enemies.forEach(z => { 
-                    if (z.hp > 0 && z.room === this.currentRoom && z !== p.owner && this.rectIntersect(p.x - 5, p.y - 5, 10, 10, z.x, z.y, z.w, z.h)) {
-                        exploded = true; 
-                    }
-                }); 
-            }
-            
-            if (p.life <= 0) exploded = true; 
-
-            if (exploded && !p.markedForDeletion) {
-                p.markedForDeletion = true; 
-                
-                for(let i=0; i<20; i++) this.createParticle(p.x, p.y, p.reflected ? '#00ffff' : '#cddc39', this.currentRoom); 
-                sfx.sfxExplode();
-                let d = new Decal(p.x, p.y, p.reflected ? 'rgba(0, 255, 255, 0.3)' : 'rgba(150, 200, 0, 0.4)', 1.5);
-                d.room = this.currentRoom;
-                this.decals.push(d);
-                
-                if (!p.reflected) { 
-                    let dp = new DamagePool(p.x, p.y, 240); dp.room = this.currentRoom;
-                    this.damagePools.push(dp); 
-                }
-
-                if (Math.hypot((this.player.x + 20) - p.x, (this.player.y + 20) - p.y) < 50 && this.player.iFrames <= 0) {
-                    let pDmg = 10;
-                    if (this.gameMode === 'ENDLESS') { if (UI.endlessConfig.ohk) pDmg = 9999; else pDmg = Math.floor(10 * UI.endlessConfig.zDamage); }
-                    this.player.hp = Math.max(0, this.player.hp - pDmg); 
-                    this.combo = 0; 
-                    this.player.fatigue = Math.min(100, this.player.fatigue + 5); 
-                    this.createFloatText(this.player.x+20, this.player.y, `-${pDmg} (Toxic)`, "#cddc39", this.currentRoom); 
-                    this.shake = Math.max(this.shake, 5); this.player.iFrames = 45;
-                }
-                
-                this.enemies.forEach(z => {
-                    if (z.hp > 0 && z.room === this.currentRoom && Math.hypot((z.x + z.w/2) - p.x, (z.y + z.h/2) - p.y) < 60) {
-                        let dmg = p.reflected ? 60 : 20; 
-                        
-                        let isBoar = z.type === 'boar';
-                        let actualDamage = dmg;
-
-                        if (isBoar && z.state !== 'stunned' && z.state !== 'flee') {
-                            actualDamage = Math.ceil(dmg * 0.15); 
-                            z.hp -= actualDamage;
-                        } else {
-                            z.hp -= actualDamage;
-                            if (isBoar && z.state === 'stunned') z.playerDamagedDuringStun = true; 
-                        }
-
-                        this.createFloatText(z.x + (z.w/2), z.y, `-${actualDamage}`, p.reflected ? "#00ffff" : "#cddc39", this.currentRoom);
-                        if (!p.reflected && p.owner && p.owner !== z && p.owner.hp > 0 && z.type !== 'boar' && z.type !== 'fish') { z.aggroTarget = p.owner; z.aggroTimer = 480; }
-                        
-                        if(z.hp <= 0 && !z.handledDeath) { 
-                            z.handledDeath = true; 
-                            
-                            if (z.type === 'fish') {
-                                this.dropLoot(z.x, z.y, 'food', this.currentRoom);
-                                this.createFloatText(z.x+10, z.y, "CATCH!", "#00e5ff", this.currentRoom);
-                            }
-                            else if (z.type === 'boar') {
-                                for(let i=0; i<2; i++) {
-                                    this.dropLoot(z.x + (Math.random()*20-10), z.y + (Math.random()*20-10), 'food', this.currentRoom);
-                                }
-                                this.createFloatText(Math.max(10, Math.min(this.worldWidth-40, z.x))+20, z.y, "HUNTED!", "#ffcc00", this.currentRoom);
-                            }
-                            else if (z.isAlpha) {
-                                this.dropLoot(z.x, z.y, 'orb_momentum', this.currentRoom);
-                                this.createFloatText(z.x+20, z.y, "ALPHA SLAIN!", "#00e5ff", this.currentRoom);
-                                this.shake = 20; sfx.sfxExplode();
-                                this.peacefulNight = true; this.isSiege = false;
-                                this.createFloatText(this.player.x+20, this.player.y-60, "THE HORDE SCATTERS...", "#ffeb3b", this.currentRoom);
-                                this.enemies.forEach(ez => { 
-                                    if (ez !== z && ez.type !== 'boar' && ez.type !== 'fish') { 
-                                        ez.hp = 0; 
-                                        for(let i=0; i<10; i++) this.createParticle(ez.x+20, ez.y+20, '#555', this.currentRoom);
-                                    } 
-                                });
-                            }
-                            else if (z.isBrood) {
-                                this.dropLoot(z.x, z.y, 'orb_vampirism', this.currentRoom);
-                                this.createFloatText(z.x+20, z.y, "BROODMOTHER SLAIN!", "#ff1744", this.currentRoom);
-                                this.shake = 20; sfx.sfxExplode();
-                                this.peacefulNight = true; this.isSiege = false;
-                                this.createFloatText(this.player.x+20, this.player.y-60, "THE HORDE SCATTERS...", "#ffeb3b", this.currentRoom);
-                                this.enemies.forEach(ez => { 
-                                    if (ez !== z && ez.type !== 'boar' && ez.type !== 'fish') { 
-                                        ez.hp = 0; 
-                                        for(let i=0; i<10; i++) this.createParticle(ez.x+20, ez.y+20, '#555', this.currentRoom);
-                                    } 
-                                });
-                            }
-                            else if (z.type === 'warlord') { 
-                                this.shake = 30; sfx.sfxExplode(); 
-                                for(let i=0; i<100; i++) this.createParticle(z.x+40, z.y+40, '#d32f2f', this.currentRoom); 
-                                
-                                if (this.gameMode === 'SURVIVAL' && this.dayCount === 21 && this.isSiege && this.state === 'PLAYING') {
-                                    this.triggerSunrise();
-                                } else if (this.gameMode === 'ENDLESS') {
-                                    for(let i=0; i<5; i++) {
-                                        this.dropLoot(z.x + (Math.random()*60-30), z.y + (Math.random()*60-30), 'food', this.currentRoom);
-                                        this.dropLoot(z.x + (Math.random()*60-30), z.y + (Math.random()*60-30), 'bandage', this.currentRoom);
-                                    }
-                                    this.createFloatText(z.x+40, z.y, "BOSS DEFEATED!", "#ffcc00", this.currentRoom);
-                                    this.peacefulNight = true; this.isSiege = false;
-                                    this.createFloatText(this.player.x+20, this.player.y-60, "THE HORDE SCATTERS...", "#ffeb3b", this.currentRoom);
-                                    this.enemies.forEach(ez => { 
-                                        if (ez !== z && ez.type !== 'boar' && ez.type !== 'fish') { 
-                                            ez.hp = 0; 
-                                            for(let i=0; i<10; i++) this.createParticle(ez.x+20, ez.y+20, '#555', this.currentRoom);
-                                        } 
-                                    });
-                                }
-                            } else {
-                                let c = new Corpse(z, p.vx > 0 ? 1 : -1); c.room = this.currentRoom;
-                                this.corpses.push(c); 
-                                
-                                let dc = new Decal(z.x + z.w/2, z.y + z.h, z.type === 'spitter' ? 'rgba(150, 200, 0, 0.4)' : 'rgba(120, 0, 0, 0.5)', z.type === 'brute' ? 1.5 : 1.0);
-                                dc.room = this.currentRoom;
-                                this.decals.push(dc);
-                                
-                                if (this.gameMode === 'ENDLESS' && UI.endlessConfig.explodeZ) {
-                                    let dp = new DamagePool(z.x, z.y, 240); dp.room = this.currentRoom;
-                                    this.damagePools.push(dp);
-                                    for(let i=0; i<20; i++) this.createParticle(z.x+20, z.y+20, '#cddc39', this.currentRoom); 
-                                    sfx.sfxExplode();
-                                }
-                                
-                                if (this.state === 'PLAYING' && Math.random() < 0.25) {
-                                    this.dropLoot(z.x, z.y, 'blood', this.currentRoom);
-                                }
-                            }
-                        }
-                    }
-                });
-            }
-        });
-        
-        this.projectiles = this.projectiles.filter(p => !p.markedForDeletion);
-
-        this.enemies.forEach(z => {
-            if (z.room !== this.currentRoom) return;
-
-            let isStunnedBoar = (z.type === 'boar' && z.state === 'stunned');
-            let isFleeingBoar = (z.type === 'boar' && z.state === 'flee');
-
-            let enemyMaxY = (this.currentRoom === 'RIVER' && z.type !== 'fish') ? 160 : canvas.height - z.h - 5;
-            let enemyMinY = (z.type === 'fish') ? 200 : 65;
-            z.y = Math.max(enemyMinY, Math.min(enemyMaxY, z.y));
-            
-            if (!isFleeingBoar) {
-                z.x = Math.max(0, Math.min(this.worldWidth - z.w, z.x));
-            }
-
-            if (this.currentRoom === 'HUB' && z.x + z.w > 1800) {
-                z.x = 1800 - z.w; 
-                z.patrolDir = -1; 
-            }
-
-            let playerInSanctuary = (this.currentRoom === 'HUB' && this.player.x > 1750);
-            let repelled = (playerInSanctuary && z.type !== 'boar' && z.type !== 'fish');
-            let repelForced = (repelled && z.x > 1650);
-
-            if (repelled) {
-                z.aggroTarget = null;
-                z.aggroTimer = 0;
-                z.isChasing = false;
-            }
-
-            if (z.isCasting > 0) {
-                z.isCasting--;
-                if (z.isCasting === 1 && z.type === 'warlord') {
-                    this.shake = 20; sfx.sfxExplode();
-                    for(let i=0; i<3; i++) { 
-                        let dp = new DamagePool(this.player.x + (Math.random()*100 - 50), this.player.y + (Math.random()*100 - 50), 300);
-                        dp.room = this.currentRoom;
-                        this.damagePools.push(dp); 
-                    }
-                    for(let i=0; i<40; i++) this.createParticle(z.x+z.w/2, z.y+z.h, '#d32f2f', this.currentRoom); 
-                    this.createFloatText(z.x+z.w/2, z.y-10, "ERUPTION!", "#d32f2f", this.currentRoom);
-                }
-                return; 
-            }
-
-            if (z.type === 'warlord' && z.specialTimer > 0 && this.state === 'PLAYING') { z.specialTimer--; if (z.specialTimer <= 0) { z.isCasting = 60; z.specialTimer = 300; } }
-
-            if (z.spawnTimer > 0) { 
-                z.spawnTimer--; 
-                if (z.spawnTimer % 5 === 0) {
-                    for(let i=0; i<5; i++) this.createParticle(z.x + z.w/2 + (Math.random()*40-20), z.y + z.h, Math.random() > 0.5 ? '#5d4037' : '#333333', this.currentRoom);
-                    if (z.type === 'warlord' && z.spawnTimer % 20 === 0) this.shake = Math.max(this.shake, 5); 
-                }
-                return; 
-            } 
-            
-            if (z.burning) { 
-                if (z.type === 'warlord' && this.state === 'SUNRISE') { return; } 
-                else { z.hp -= (z.type === 'warlord' ? 0 : 3); if (Math.random() < 0.2) this.createParticle(z.x+20, z.y+20, '#ff9900', this.currentRoom); }
-                
-                if (z.hp <= 0 && !z.handledDeath) { 
-                    z.handledDeath = true;
-                    
-                    if (z.isAlpha) {
-                        this.dropLoot(z.x, z.y, 'orb_momentum', this.currentRoom);
-                        this.createFloatText(z.x+20, z.y, "ALPHA BURNED!", "#00e5ff", this.currentRoom);
-                        this.shake = 20; sfx.sfxExplode();
-                    } 
-                    else if (z.isBrood) {
-                        this.dropLoot(z.x, z.y, 'orb_vampirism', this.currentRoom);
-                        this.createFloatText(z.x+20, z.y, "BROODMOTHER BURNED!", "#ff1744", this.currentRoom);
-                        this.shake = 20; sfx.sfxExplode();
-                    }
-                    else if (z.type === 'warlord') { 
-                        this.shake = 30; sfx.sfxExplode(); 
-                        for(let i=0; i<200; i++) this.createParticle(z.x+40, z.y+40, '#ff9900', this.currentRoom); 
-                        
-                        if (this.gameMode === 'ENDLESS') {
-                            for(let i=0; i<5; i++) {
-                                this.dropLoot(z.x + (Math.random()*60-30), z.y + (Math.random()*60-30), 'food', this.currentRoom);
-                                this.dropLoot(z.x + (Math.random()*60-30), z.y + (Math.random()*60-30), 'bandage', this.currentRoom);
-                            }
-                            this.createFloatText(z.x+40, z.y, "BOSS BURNED!", "#ffcc00", this.currentRoom);
-                            this.peacefulNight = true; this.isSiege = false;
-                            this.createFloatText(this.player.x+20, this.player.y-60, "THE HORDE SCATTERS...", "#ffeb3b", this.currentRoom);
-                            this.enemies.forEach(ez => { 
-                                if (ez !== z && ez.type !== 'boar' && ez.type !== 'fish') { 
-                                    ez.hp = 0; 
-                                    for(let i=0; i<10; i++) this.createParticle(ez.x+20, ez.y+20, '#555', this.currentRoom);
-                                } 
-                            });
-                        }
-                    } 
-                    else { 
-                        for(let i=0; i<30; i++) this.createParticle(z.x+20, z.y+20, '#444444', this.currentRoom); sfx.sfxHit(); 
-                    }
-                    let d = new Decal(z.x + z.w/2, z.y + z.h, 'rgba(20, 20, 20, 0.6)', z.type === 'warlord' ? 3.0 : 1.5);
-                    d.room = this.currentRoom;
-                    this.decals.push(d);
-                } 
+        if (e.state === 'charge') {
+            e.x += e.chargeVx; e.y += e.chargeVy; e.travelled += Math.hypot(e.chargeVx, e.chargeVy);
+            e.isMoving = true;
+            if (this.frames % 2 === 0) this.burst(fx(e), fy(e), 'rgba(200,180,140,0.6)', 1, { speed: 1, shape: 'smoke', size: 5, grav: -0.02 });
+            const crash = (msg) => {
+                e.state = 'stunned'; e.stateTimer = 130; e.damagedWhileStunned = false;
+                e.hp -= 20;
+                this.text(fx(e), e.y - 12, msg, '#ff7a50', 18);
+                this.shake = Math.max(this.shake, 12); sfx.sfxExplode();
+                this.burst(fx(e), e.y + 20, '#6e4627', 12, { speed: 5 });
+                if (e.hp <= 0) this.killEnemy(e, -Math.sign(e.chargeVx), 'hit');
+            };
+            if (fx(e) > FOREST_END + 220) { e.state = 'stunned'; e.stateTimer = e.missStun || 50; e.damagedWhileStunned = false; e.x -= e.chargeVx; return; }
+            const wall = e.x <= 4 || e.x >= WORLD_W - e.w - 4 || fy(e) <= FEET_MIN + 2 || fy(e) >= FEET_MAX - 2;
+            const tree = this.trees.some(t => t.solid && Math.abs(fx(e) + Math.sign(e.chargeVx) * 18 - t.x) < 18 * t.s && Math.abs(fy(e) - t.y) < 16);
+            const cache = this.caches.some(k => !k.dead && rectHit({ x: e.x + 10, y: fy(e) - 12, w: e.w - 20, h: 12 }, k));
+            const dojo = OBSTACLES.some(o => rectHit({ x: e.x + 10, y: fy(e) - 12, w: e.w - 20, h: 12 }, o));
+            const other = this.enemies.find(o => o !== e && !o.dead && o.type === 'boar' && rectHit(e, o));
+            if (wall || tree || cache || dojo) { crash('Crash!'); return; }
+            if (other) { crash('Crash!'); other.state = 'stunned'; other.stateTimer = 130; other.hp -= 20; if (other.hp <= 0) this.killEnemy(other, 1, 'hit'); return; }
+            if (rectHit({ x: e.x + 8, y: e.y + 10, w: e.w - 16, h: e.h - 10 }, { x: p.x + 8, y: p.y + 4, w: 24, h: 34 }) && p.iFrames <= 0) {
+                this.damagePlayer(e.dmg, e, 0);
+                p.kvx = Math.sign(e.chargeVx) * 8;
+                e.state = 'stunned'; e.stateTimer = 50; e.damagedWhileStunned = false;
                 return;
             }
-            if (z.hp <= 0) return;
-
-            if (z.biteTimer > 0) z.biteTimer--; if (z.hitTimer > 0) z.hitTimer--;
-            else {
-                let isBloodMoonDrone = (this.isSiege && !this.peacefulNight && z.type !== 'spitter' && z.type !== 'warlord' && !z.isBrood && z.type !== 'boar' && z.type !== 'fish');
-                if (z.aggroTimer > 0 && !repelled) { z.aggroTimer--; isBloodMoonDrone = false; }
-
-                let targetX = isBloodMoonDrone ? this.dojo.x + 30 + z.dojoOffsetX : this.player.x; 
-                let targetY = isBloodMoonDrone ? this.dojo.y + 20 + z.dojoOffsetY : this.player.y;
-                
-                if (z.aggroTarget && !repelled) { if (z.aggroTarget.hp <= 0) z.aggroTarget = null; else { targetX = z.aggroTarget.x + z.aggroTarget.w/2; targetY = z.aggroTarget.y + z.aggroTarget.h/2; } }
-                let distToTarget = Math.hypot(targetX - z.x, targetY - z.y); 
-                let isOnScreen = (z.x > this.camera.x && z.x + z.w < this.camera.x + canvas.width && z.y > 0 && z.y + z.h < canvas.height); 
-                let oldX = z.x, oldY = z.y;
-
-                if (z.type === 'fish') {
-                    if (z.panicBlind === undefined) z.panicBlind = 0;
-                    if (!z.fishState) { z.fishState = 'wander'; z.fishTimer = 0; z.fAngle = 0; }
-                    
-                    let distToPlayer = Math.hypot((this.player.x + 20) - (z.x + 15), (this.player.y + 20) - (z.y + 10));
-                    
-                    if (distToPlayer < 120 && z.fishState !== 'flee') {
-                        z.fishState = 'flee';
-                        z.fishTimer = 60; 
-                        z.fAngle = Math.atan2((z.y + 10) - (this.player.y + 20), (z.x + 15) - (this.player.x + 20));
-                    }
-
-                    if (z.fishState === 'flee') {
-                        z.fishTimer--;
-                        if (z.panicBlind > 0) z.panicBlind--;
-                        
-                        if (distToPlayer < 120 && z.fishTimer % 10 === 0 && z.panicBlind <= 0) {
-                            z.fAngle = Math.atan2((z.y + 10) - (this.player.y + 20), (z.x + 15) - (this.player.x + 20));
-                        }
-
-                        let nextX = z.x + Math.cos(z.fAngle) * (z.speed * 1.5);
-                        let nextY = z.y + Math.sin(z.fAngle) * (z.speed * 1.5);
-
-                        let bounced = false;
-                        if (nextX <= 10 || nextX >= this.worldWidth - z.w - 10) { z.fAngle = Math.PI - z.fAngle; bounced = true; }
-                        if (nextY <= 210 || nextY >= canvas.height - z.h - 10) { z.fAngle = -z.fAngle; bounced = true; }
-                        
-                        if (bounced) {
-                            z.fishTimer = 45; 
-                            z.panicBlind = 30; 
-                        }
-
-                        z.x += Math.cos(z.fAngle) * (z.speed * 1.5);
-                        z.y += Math.sin(z.fAngle) * (z.speed * 1.5);
-                        
-                        if (Math.abs(Math.cos(z.fAngle)) > 0.1) {
-                            z.facingRight = Math.cos(z.fAngle) > 0;
-                        }
-
-                        if (this.frames % 5 === 0) this.createParticle(z.x + 15, z.y + 10, '#00ffff', this.currentRoom);
-
-                        if (z.fishTimer <= 0 && distToPlayer > 150) {
-                            z.fishState = 'wander';
-                            z.anchorX = 50 + Math.random() * (this.worldWidth - 100);
-                            z.anchorY = 220 + Math.random() * (canvas.height - 260);
-                        }
-                    } else {
-                        let distToAnchor = Math.hypot(z.anchorX - z.x, z.anchorY - z.y);
-                        if (distToAnchor < 20) {
-                            z.anchorX = 50 + Math.random() * (this.worldWidth - 100);
-                            z.anchorY = 220 + Math.random() * (canvas.height - 260);
-                        }
-                        let aAngle = Math.atan2(z.anchorY - z.y, z.anchorX - z.x);
-                        z.x += Math.cos(aAngle) * (z.speed * 0.6);
-                        z.y += Math.sin(aAngle) * (z.speed * 0.6);
-                        z.facingRight = Math.cos(aAngle) > 0;
-                    }
-                }
-                else if (z.type === 'boar') {
-                    if (!z.state) z.state = 'idle';
-                    if (!z.stateTimer) z.stateTimer = 0;
-
-                    if (z.state === 'flee') {
-                        z.x += z.fleeDir * z.speed * 2.0;
-                        z.isMoving = true;
-                        z.facingRight = z.fleeDir > 0;
-                        if (this.frames % 5 === 0) this.createParticle(z.x+20, z.y+20, '#e6c280', this.currentRoom);
-                        
-                        if (z.x < -100 || z.x > this.worldWidth + 100) {
-                            z.hp = 0; 
-                            z.handledDeath = true; 
-                        }
-                    }
-                    else if (z.state === 'charge') {
-                        for (let other of this.enemies) {
-                            if (other !== z && other.type === 'boar' && other.hp > 0 && !other.burning) {
-                                if (this.rectIntersect(z.x, z.y, z.w, z.h, other.x, other.y, other.w, other.h)) {
-                                    z.state = 'stunned'; z.stateTimer = 120; z.hp -= 25; z.playerDamagedDuringStun = false;
-                                    other.state = 'stunned'; other.stateTimer = 120; other.hp -= 25; other.playerDamagedDuringStun = false;
-                                    
-                                    this.shake = Math.max(this.shake, 10); sfx.sfxHit();
-                                    this.createFloatText(z.x+20, z.y-10, "-25", "#fff", this.currentRoom);
-                                    this.createFloatText(other.x+20, other.y-10, "-25", "#fff", this.currentRoom);
-                                    
-                                    for(let i=0; i<10; i++) {
-                                        this.createParticle(z.x+20, z.y+20, '#5d4037', this.currentRoom);
-                                        this.createParticle(other.x+20, other.y+20, '#5d4037', this.currentRoom);
-                                    }
-
-                                    [z, other].forEach(b => {
-                                        if (b.hp <= 0 && !b.handledDeath) {
-                                            b.handledDeath = true;
-                                            for(let k=0; k<2; k++) {
-                                                this.dropLoot(b.x + (Math.random()*20-10), b.y + (Math.random()*20-10), 'food', this.currentRoom);
-                                            }
-                                            this.createFloatText(Math.max(10, Math.min(this.worldWidth-40, b.x))+20, b.y, "HUNTED!", "#ffcc00", this.currentRoom);
-                                        }
-                                    });
-                                }
-                            }
-                        }
-
-                        z.x += z.chargeVx;
-                        z.y += z.chargeVy;
-                        z.isMoving = true;
-                        
-                        let stepDist = Math.hypot(z.chargeVx, z.chargeVy);
-                        z.distanceTravelled += stepDist;
-
-                        this.createParticle(z.x + z.w/2, z.y + z.h, '#e6c280', this.currentRoom); 
-                        
-                        let hitWall = (z.x <= 10 || z.x >= this.worldWidth - z.w - 10 || z.y <= 65 || z.y >= canvas.height - z.h - 5);
-                        let hitTree = false;
-
-                        if (this.currentRoom === 'FOREST') {
-                            for (let t of this.forestTrees) {
-                                if (Math.abs((z.x + z.w/2) - t.x) < 25 && Math.abs((z.y + z.h) - t.y) < 20) {
-                                    hitTree = true;
-                                    break;
-                                }
-                            }
-                        }
-
-                        if (hitTree || hitWall) {
-                            z.state = 'stunned';
-                            z.stateTimer = 120; 
-                            z.playerDamagedDuringStun = false; 
-                            z.hp -= 20; 
-                            
-                            this.shake = Math.max(this.shake, 12);
-                            sfx.sfxExplode();
-                            
-                            this.createFloatText(z.x+20, z.y-10, "CRASH!", "#ff1100", this.currentRoom);
-
-                            if (z.hp <= 0 && !z.handledDeath) {
-                                z.handledDeath = true;
-                                for(let i=0; i<2; i++) this.dropLoot(z.x + (Math.random()*20-10), z.y + (Math.random()*20-10), 'food', this.currentRoom);
-                                this.createFloatText(Math.max(10, Math.min(this.worldWidth-40, z.x))+20, z.y, "HUNTED!", "#ffcc00", this.currentRoom);
-                                
-                                let d = new Decal(z.x + z.w/2, z.y + z.h, 'rgba(93, 64, 55, 0.6)', 1.2);
-                                d.room = this.currentRoom;
-                                this.decals.push(d);
-                            }
-                        } else if (z.distanceTravelled >= z.targetDistance) {
-                            z.state = 'stunned';
-                            z.stateTimer = 60; 
-                            z.playerDamagedDuringStun = false; 
-                            this.createFloatText(z.x+20, z.y-10, "?", "#fff", this.currentRoom);
-                        }
-                    } else if (z.state === 'stunned') {
-                        z.stateTimer--;
-                        z.isMoving = false;
-                        if (this.frames % 10 === 0) this.createParticle(z.x + z.w/2, z.y, '#fff', this.currentRoom);
-                        
-                        if (z.stateTimer <= 0) {
-                            if (z.playerDamagedDuringStun) {
-                                z.state = 'flee';
-                                z.fleeDir = (z.x < this.player.x) ? -1 : 1;
-                                this.createFloatText(z.x+20, z.y-25, "FLEE!", "#ffcc00", this.currentRoom);
-                            } else {
-                                z.state = 'idle';
-                            }
-                        }
-                    } else if (z.state === 'windup') {
-                        z.stateTimer--;
-                        z.isMoving = false;
-                        z.x += (Math.random() - 0.5) * 4; 
-                        
-                        if (z.stateTimer <= 0) {
-                            let los = this.hasLineOfSight(z.x+z.w/2, z.y+z.h/2, targetX, targetY);
-                            if (los) {
-                                z.state = 'charge';
-                                
-                                let initialDist = Math.hypot((this.player.x + 20) - (z.x + z.w/2), (this.player.y + 20) - (z.y + z.h/2));
-                                z.targetDistance = initialDist + 60; 
-                                z.distanceTravelled = 0;
-
-                                let angle = Math.atan2((this.player.y+20) - (z.y+z.h/2), (this.player.x+20) - (z.x+z.w/2));
-                                z.chargeVx = Math.cos(angle) * 16; 
-                                z.chargeVy = Math.sin(angle) * 16;
-                                z.facingRight = z.chargeVx > 0;
-                            } else {
-                                z.state = 'idle';
-                                z.stateTimer = 20; 
-                            }
-                        }
-                    } else {
-                        if (distToTarget < 250 && Math.abs(z.y - targetY) < 100) { 
-                            let los = this.hasLineOfSight(z.x+z.w/2, z.y+z.h/2, targetX, targetY);
-                            if (los) {
-                                z.state = 'windup';
-                                z.stateTimer = 45; 
-                                z.facingRight = targetX > z.x;
-                                sfx.sfxFrustratedGroan(); 
-                            } else {
-                                let angle = Math.atan2(targetY - z.y, targetX - z.x);
-                                z.x += Math.cos(angle) * z.speed * 0.8;
-                                z.y += Math.sin(angle) * z.speed * 0.8;
-                                z.facingRight = Math.cos(angle) > 0;
-                                z.isMoving = true;
-                            }
-                        } else {
-                            z.x += (z.speed * 0.5) * z.patrolDir;
-                            if (z.x > z.anchorX + 150) z.patrolDir = -1; 
-                            if (z.x < z.anchorX - 150) z.patrolDir = 1;
-                            z.facingRight = z.patrolDir > 0;
-                            z.isMoving = true;
-                        }
-                    }
-                }
-                else if (z.type === 'spitter') {
-                    if (z.isBrood && distToTarget < 300 && !repelled) {
-                        z.isChasing = false;
-                        let fleeAngle = Math.atan2(z.y - targetY, z.x - targetX);
-                        z.x += Math.cos(fleeAngle) * z.speed;
-                        z.y += Math.sin(fleeAngle) * z.speed;
-                        z.facingRight = targetX > z.x; 
-                    }
-                    else if (!z.aggroTarget && !repelled) {
-                        if (distToTarget > 180) z.isChasing = false; else z.isChasing = true;
-                    } else if (!repelled) { z.isChasing = true; }
-                    else { z.isChasing = false; } 
-
-                    if (z.shootTimer > 0) z.shootTimer--;
-                    if ((distToTarget > 180 && !z.isBrood) || !isOnScreen || (!z.isChasing && !z.isBrood) || repelled) { 
-                        if (!z.isChasing || repelled) {
-                            if (repelForced) {
-                                z.x -= z.speed;
-                                z.facingRight = false;
-                                z.isMoving = true;
-                            } else {
-                                let distToAnchor = Math.hypot(z.anchorX - z.x, z.anchorY - z.y);
-                                if (distToAnchor < 20) {
-                                    z.anchorX = 50 + Math.random() * 1550; 
-                                    let zMaxYA = canvas.height - 70;
-                                    z.anchorY = 70 + Math.random() * (zMaxYA - 70);
-                                }
-                                let aAngle = Math.atan2(z.anchorY - z.y, z.anchorX - z.x);
-                                z.x += Math.cos(aAngle) * z.speed;
-                                z.y += Math.sin(aAngle) * z.speed;
-                                z.facingRight = Math.cos(aAngle) > 0;
-                                z.isMoving = true;
-                            }
-                        } else {
-                            if (z.x < targetX) z.x += z.speed; if (z.x > targetX) z.x -= z.speed; if (z.y < targetY) z.y += z.speed; if (z.y > targetY) z.y -= z.speed;
-                        }
-                    } else {
-                        if (z.shootTimer <= 0) {
-                            let aimY = isBloodMoonDrone ? targetY + 20 : targetY; 
-                            let angle = Math.atan2(aimY - (z.y + 20), targetX - (z.x + 20));
-                            
-                            let p1 = new Projectile(z.x + 20, z.y + 20, Math.cos(angle) * 4, Math.sin(angle) * 4, z);
-                            p1.room = this.currentRoom;
-                            this.projectiles.push(p1);
-                            
-                            if (z.isBrood) {
-                                let p2 = new Projectile(z.x + 20, z.y + 20, Math.cos(angle - 0.3) * 4, Math.sin(angle - 0.3) * 4, z);
-                                let p3 = new Projectile(z.x + 20, z.y + 20, Math.cos(angle + 0.3) * 4, Math.sin(angle + 0.3) * 4, z);
-                                p2.room = this.currentRoom; p3.room = this.currentRoom;
-                                this.projectiles.push(p2, p3);
-                            }
-                            
-                            z.shootTimer = z.isBrood ? 90 : 120; 
-                            sfx.sfxSpit();
-                        }
-                    }
-                    if(z.isChasing && !repelled) z.facingRight = targetX > z.x;
-                } 
-                else {
-                    if (!isBloodMoonDrone && !z.aggroTarget && z.type !== 'warlord' && !repelled) {
-                        if (distToTarget > 180) z.isChasing = false; else z.isChasing = true;
-                    } else if (!repelled) { z.isChasing = true; }
-                    else { z.isChasing = false; }
-
-                    if (z.type === 'brute' && z.aggroTarget && z.aggroTarget.type === 'spitter') {
-                        if (distToTarget < 60 && z.biteTimer <= 0) {
-                            z.biteTimer = 60; z.aggroTarget.hp = 0; z.aggroTarget.handledDeath = true; this.hitStop = 4; sfx.sfxYeet();
-                            let c = new Corpse(z.aggroTarget, z.facingRight ? 1 : -1, true); c.room = this.currentRoom;
-                            this.corpses.push(c); 
-                            this.createFloatText(z.x + 25, z.y - 20, "YEET!", "#ffcc00", this.currentRoom); this.shake = Math.max(this.shake, 15); z.aggroTarget = null;
-                        }
-                    } else if (z.aggroTarget && z.aggroTarget.type === 'spitter' && z.type !== 'warlord') {
-                        if (distToTarget < 40 && z.biteTimer <= 0) {
-                            z.biteTimer = 60; z.aggroTarget.hp -= 10;
-                            for(let i=0; i<8; i++) this.createParticle(z.aggroTarget.x + 20, z.aggroTarget.y + 20, '#cddc39', this.currentRoom); 
-                            this.createFloatText(z.aggroTarget.x + 20, z.aggroTarget.y, "-10", "#fff", this.currentRoom); sfx.sfxHit();
-                            if (z.aggroTarget.hp <= 0 && !z.aggroTarget.handledDeath) {
-                                z.handledDeath = true; 
-                                let c = new Corpse(z.aggroTarget, z.facingRight ? 1 : -1); c.room = this.currentRoom;
-                                this.corpses.push(c); 
-                                let d = new Decal(z.aggroTarget.x + z.aggroTarget.w/2, z.aggroTarget.y + z.aggroTarget.h, 'rgba(150, 200, 0, 0.4)', 1.0);
-                                d.room = this.currentRoom;
-                                this.decals.push(d); z.aggroTarget = null;
-                            }
-                        }
-                    }
-
-                    if (!z.isChasing || repelled) {
-                        if (repelForced) {
-                            z.x -= z.speed;
-                            z.facingRight = false;
-                            z.isMoving = true;
-                        } else {
-                            let distToAnchor = Math.hypot(z.anchorX - z.x, z.anchorY - z.y);
-                            if (distToAnchor < 20) {
-                                z.anchorX = 50 + Math.random() * 1550; 
-                                let zMaxYA = canvas.height - 70;
-                                z.anchorY = 70 + Math.random() * (zMaxYA - 70);
-                            }
-                            let aAngle = Math.atan2(z.anchorY - z.y, z.anchorX - z.x);
-                            z.x += Math.cos(aAngle) * z.speed;
-                            z.y += Math.sin(aAngle) * z.speed;
-                            z.facingRight = Math.cos(aAngle) > 0;
-                            z.isMoving = true;
-                        }
-                    } else {
-                        if (z.x < targetX) z.x += z.speed; 
-                        if (z.x > targetX) z.x -= z.speed; 
-                        if (z.y < targetY) z.y += z.speed; 
-                        if (z.y > targetY) z.y -= z.speed;
-                        z.facingRight = targetX > z.x;
-                    }
-                }
-
-                if (z.type !== 'boar' && z.type !== 'fish') z.isMoving = (z.x !== oldX || z.y !== oldY);
-                
-                let enemyMaxY = (this.currentRoom === 'RIVER' && z.type !== 'fish') ? 160 : canvas.height - z.h - 5;
-                let enemyMinY = (z.type === 'fish') ? 200 : 65;
-                z.y = Math.max(enemyMinY, Math.min(enemyMaxY, z.y));
-                
-                let isStunnedBoar = (z.type === 'boar' && z.state === 'stunned');
-                let isFleeingBoar = (z.type === 'boar' && z.state === 'flee');
-                
-                if (!isFleeingBoar) {
-                    z.x = Math.max(0, Math.min(this.worldWidth - z.w, z.x));
-                }
-
-                let zBox = { x: z.x + 10, y: z.y + 10, w: z.w - 20, h: z.h - 20 }; 
-                let pHurtbox = { x: this.player.x + 10, y: this.player.y + 5, w: 20, h: 30 };
-                
-                if (!z.burning && !isBloodMoonDrone && z.biteTimer <= 0 && this.player.iFrames <= 0 && this.rectIntersect(zBox.x, zBox.y, zBox.w, zBox.h, pHurtbox.x, pHurtbox.y, pHurtbox.w, pHurtbox.h) && z.type !== 'fish' && !isStunnedBoar && !isFleeingBoar) {
-                    
-                    if (z.type === 'boar' && z.state === 'charge' && this.player.isAttacking && this.player.isSpinning) {
-                        z.state = 'stunned';
-                        z.stateTimer = 150; 
-                        z.playerDamagedDuringStun = false; 
-                        z.hp -= 40;
-                        z.biteTimer = 60;
-                        this.shake = Math.max(this.shake, 15);
-                        if (this.hitStop <= 0) this.hitStop = 5;
-                        sfx.sfxParry();
-                        this.createFloatText(z.x+20, z.y-10, "CLASH!", "#00ffff", this.currentRoom);
-                        for(let i=0; i<20; i++) this.createParticle(z.x+20, z.y+20, '#00ffff', this.currentRoom);
-                        
-                        z.x += (z.x > this.player.x ? 40 : -40);
-                        
-                        if (z.hp <= 0 && !z.handledDeath) {
-                            z.handledDeath = true;
-                            for(let i=0; i<2; i++) this.dropLoot(z.x + (Math.random()*20-10), z.y + (Math.random()*20-10), 'food', this.currentRoom);
-                            this.createFloatText(Math.max(10, Math.min(this.worldWidth-40, z.x))+20, z.y, "HUNTED!", "#ffcc00", this.currentRoom);
-                            let d = new Decal(z.x + z.w/2, z.y + z.h, 'rgba(93, 64, 55, 0.6)', 1.2);
-                            d.room = this.currentRoom;
-                            this.decals.push(d);
-                        }
-                    } else if (this.player.iFrames <= 0) {
-                        let dmg = z.type === 'brute' || z.isAlpha ? 20 : (z.type === 'warlord' ? 40 : (z.type === 'boar' ? 25 : 10)); 
-                        if (this.gameMode === 'ENDLESS' && z.type !== 'warlord' && !z.isAlpha && !z.isBrood) dmg = Math.floor(dmg * UI.endlessConfig.zDamage);
-                        if (this.gameMode === 'ENDLESS' && UI.endlessConfig.ohk) dmg = 9999;
-
-                        this.player.hp = Math.max(0, this.player.hp - dmg); 
-                        z.biteTimer = 60; this.player.iFrames = 45; 
-                        this.combo = 0; 
-                        
-                        if (z.type === 'boar' && z.state === 'charge') {
-                            z.state = 'stunned';
-                            z.stateTimer = 60; 
-                        }
-
-                        for(let i=0; i<10; i++) this.createParticle(this.player.x+20, this.player.y+20, '#d32f2f', this.currentRoom); 
-                        this.createFloatText(this.player.x+20, this.player.y, `-${dmg}`, "#d32f2f", this.currentRoom); this.shake = z.type === 'brute' ? 12 : (z.type === 'warlord' ? 20 : 6); sfx.sfxHit();
-                        
-                        if (z.type !== 'brute' && z.type !== 'warlord' && !z.isAlpha) { this.player.x = Math.max(0, Math.min(this.worldWidth - this.player.size, this.player.x + ((this.player.x < z.x) ? -15 : 15))); }
-                    }
-                }
-
-                if (!z.burning && isBloodMoonDrone && z.biteTimer <= 0 && this.rectIntersect(zBox.x, zBox.y, zBox.w, zBox.h, this.dojo.x - 20, this.dojo.y - 20, this.dojo.w + 40, this.dojo.h + 40) && ['PLAYING', 'TUTORIAL'].includes(this.state)) {
-                    let dDmg = 5;
-                    if (this.gameMode === 'ENDLESS') { if (UI.endlessConfig.ohk) dDmg = 9999; else dDmg = Math.floor(5 * UI.endlessConfig.zDamage); }
-                    this.dojo.hp = Math.max(0, this.dojo.hp - dDmg); 
-                    z.biteTimer = 60; 
-                    this.combo = 0; 
-                    for(let i=0; i<5; i++) this.createParticle(this.dojo.x+30, this.dojo.y+20, '#1b5e20', this.currentRoom); 
-                    this.createFloatText(this.dojo.x+30, this.dojo.y, `-${dDmg}`, "#ffcc00", this.currentRoom); this.shake = 3; sfx.sfxHit();
-                }
-            }
-        });
-
-        this.enemies = this.enemies.filter(z => z.hp > 0 || (z.type === 'warlord' && this.state === 'SUNRISE'));
-
-        if (this.player.isAttacking) { this.player.attackTimer--; if (this.player.attackTimer <= 0) { this.player.isAttacking = false; this.player.isSpinning = false; } }
-
-        if (this.player.hp < oldHp) this.damageFlash = 30;
-
-        this.corpses.forEach(c => { if(c.room === this.currentRoom) c.update(canvas.height); });
-        if (this.shake > 0) this.shake *= 0.9; if (this.shake < 0.5) this.shake = 0;
-        this.particles.forEach(p => { if(p.room === this.currentRoom) p.update(canvas.height); });
-        this.floatTexts.forEach(t => { if(t.room === this.currentRoom) t.update(); });
-
-        this.projectiles = this.projectiles.filter(p => p.life > 0); 
-        this.corpses = this.corpses.filter(c => c.life > 0);
-        this.particles = this.particles.filter(p => p.life > 0); this.floatTexts = this.floatTexts.filter(t => t.life > 0);
-
-        if ((this.player.hp <= 0 || this.dojo.hp <= 0 || this.player.infection >= 3.0) && ['PLAYING', 'SUNRISE', 'TUTORIAL'].includes(this.state)) {
-            let wasTutorial = (this.state === 'TUTORIAL');
-            this.saveScore(); 
-            this.state = 'GAMEOVER'; 
-            UI.showGameOver(this.dojo.hp <= 0, wasTutorial, this.dayCount);
+            if (e.travelled >= e.targetDist) { e.state = 'stunned'; e.stateTimer = e.missStun || 50; e.damagedWhileStunned = false; this.text(fx(e), e.y - 12, '?', '#ffffff', 16); }
+            return;
         }
+        // idle / patrol
+        if (e.calm > 0) e.calm--;
+        const onScreen = fx(e) > this.camera.x + 10 && fx(e) < this.camera.x + W - 10;
+        const d = dist(fx(e), fy(e), pfx, pfy);
+        if (this.isDay && e.calm <= 0 && onScreen && d < 270 && Math.abs(pfy - fy(e)) < 120 && pfx < SANCT_START && this.hasLineOfSight(fx(e), fy(e) - 10, pfx, pfy - 10)) {
+            e.state = 'windup'; e.stateTimer = 42;
+            sfx.sfxFrustratedGroan();
+            return;
+        }
+        if (!e.patrolDir) e.patrolDir = e.facingRight ? 1 : -1;
+        e.x += e.speed * 0.45 * e.patrolDir;
+        if (e.x > e.anchorX + 140) e.patrolDir = -1;
+        if (e.x < e.anchorX - 140) e.patrolDir = 1;
+        e.facingRight = e.patrolDir > 0; e.isMoving = true;
     }
 
-    drawShadow(x, y, w, h = w) { ctx.fillStyle = "rgba(0,0,0,0.4)"; ctx.beginPath(); ctx.ellipse(x + w/2, y + h - 5, w/2, 6, 0, 0, Math.PI*2); ctx.fill(); }
-
-    drawTree(ctx, x, y, scale) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.fillStyle = "#3e2723"; 
-        ctx.fillRect(x - 8*scale, y - 30*scale, 16*scale, 30*scale);
-        
-        ctx.fillStyle = "#1b5e20"; 
-        ctx.beginPath();
-        ctx.arc(x, y - 40*scale, 35*scale, 0, Math.PI*2); 
-        ctx.fill();
-        
-        ctx.fillStyle = "#2e7d32"; 
-        ctx.beginPath();
-        ctx.arc(x - 15*scale, y - 50*scale, 25*scale, 0, Math.PI*2); 
-        ctx.fill();
-        
-        ctx.beginPath();
-        ctx.arc(x + 15*scale, y - 45*scale, 20*scale, 0, Math.PI*2); 
-        ctx.fill();
-        
-        ctx.fillStyle = "#4caf50"; 
-        ctx.beginPath();
-        ctx.arc(x - 5*scale, y - 60*scale, 15*scale, 0, Math.PI*2); 
-        ctx.fill();
-        ctx.restore();
-    }
-
-    drawSkullIcon(ctx, x, y, filled) {
-        ctx.fillStyle = filled ? "#d32f2f" : "#444";
-        ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI, true); ctx.fill();
-        ctx.fillRect(x - 6, y, 12, 4); 
-        ctx.fillRect(x - 4, y + 4, 8, 3); 
-        ctx.fillStyle = "#111"; 
-        ctx.fillRect(x - 4, y - 1, 3, 3);
-        ctx.fillRect(x + 1, y - 1, 3, 3);
-        ctx.fillRect(x - 1, y + 2, 2, 2); 
-    }
-
-    drawLighting() {
-        let r=0, g=0, b=0, a=0;
-        if (this.state === 'TUTORIAL') {
-            if (this.isDay) { r=255; g=120; b=0; a=0.2; } else if (this.isSiege && !this.peacefulNight) { r=180; g=0; b=0; a=0.5; } else { r=0; g=0; b=40; a=0.6; }
-        } else if (this.state === 'SUNRISE') {
-            let pct = 1 - (this.sunriseTimer / 300); r = 180 + (75 * pct); g = 180 * pct; b = 0; a = 0.5 - (0.3 * pct);
-        } else {
-            let pct = this.timeTimer / this.phaseDur; 
-            if (this.isDay) {
-                if (pct > 0.75) { let f = (pct - 0.75) / 0.25; r=255; g=120; b=0; a = f * 0.4; } 
-                else if (pct < 0.25) { let f = (0.25 - pct) / 0.25; r=255; g=60; b=0; a = f * 0.5; } 
-            } else {
-                if (this.isSiege && !this.peacefulNight) { r=180; g=0; b=0; a=0.5; } 
-                else {
-                    if (pct > 0.75) { let f = (pct - 0.75) / 0.25; r = 255 * f; g = 60 * f; b = 40 + (f * -40); a = 0.6 - (f * 0.1); } 
-                    else if (pct < 0.25) { let f = (0.25 - pct) / 0.25; r = 255 * f; g = 120 * f; b = 40 + (f * -40); a = 0.6 - (f * 0.2); } 
-                    else { r=0; g=0; b=40; a=0.6; }
-                }
+    hasLineOfSight(x1, y1, x2, y2) {
+        if (x1 > FOREST_END + 60 && x2 > FOREST_END + 60) return true;
+        const steps = Math.max(8, Math.floor(dist(x1, y1, x2, y2) / 14));
+        for (const t of this.trees) {
+            if (!t.solid) continue;
+            for (let i = 1; i < steps; i++) {
+                const px = x1 + (x2 - x1) * i / steps, py = y1 + (y2 - y1) * i / steps;
+                if (Math.abs(px - t.x) < 14 * t.s && py < t.y + 4 && py > t.y - 30 * t.s) return false;
             }
         }
-        let grad = ctx.createRadialGradient(canvas.width/2, canvas.height/2, 200, canvas.width/2, canvas.height/2, canvas.width);
-        grad.addColorStop(0, `rgba(${Math.floor(r)}, ${Math.floor(g)}, ${Math.floor(b)}, ${a * 0.2})`);
-        grad.addColorStop(1, `rgba(${Math.floor(r)}, ${Math.floor(g)}, ${Math.floor(b)}, ${a})`);
-        ctx.fillStyle = grad; ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-        if (this.gameMode === 'ENDLESS' && UI.endlessConfig.pitchBlack) {
-            ctx.fillStyle = 'rgba(0,0,0,0.96)'; ctx.fillRect(0,0,canvas.width, canvas.height);
-            ctx.globalCompositeOperation = 'destination-out';
-            let pbX = this.player.x + 20 - this.camera.x;
-            let pbGrad = ctx.createRadialGradient(pbX, this.player.y+20, 10, pbX, this.player.y+20, 130);
-            pbGrad.addColorStop(0, 'rgba(255,255,255,1)'); pbGrad.addColorStop(1, 'rgba(255,255,255,0)');
-            ctx.fillStyle = pbGrad; ctx.beginPath(); ctx.arc(pbX, this.player.y+20, 130, 0, Math.PI*2); ctx.fill();
-            ctx.globalCompositeOperation = 'source-over';
-        }
+        return true;
     }
 
-    draw() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.save();
-        if (this.shake > 0 && !this.paused) { let dx = (Math.random() - 0.5) * this.shake; let dy = (Math.random() - 0.5) * this.shake; ctx.translate(dx, dy); }
-        ctx.translate(-this.camera.x, 0);
-        if (this.currentRoom === 'HUB') {
-            
-            let sGrad = ctx.createLinearGradient(0, canvas.height - 80, 0, canvas.height - 40);
-            sGrad.addColorStop(0, "rgba(230, 194, 128, 0)"); 
-            sGrad.addColorStop(1, "rgba(230, 194, 128, 1)"); 
-            ctx.fillStyle = sGrad;
-            ctx.fillRect(0, canvas.height - 80, 1700, 40);
-
-            ctx.fillStyle = "#e6c280"; 
-            ctx.fillRect(0, canvas.height - 40, 1600, 40);
-            let sandBlend = ctx.createLinearGradient(1600, 0, 1700, 0);
-            sandBlend.addColorStop(0, "rgba(230, 194, 128, 1)");
-            sandBlend.addColorStop(1, "rgba(230, 194, 128, 0)");
-            ctx.fillStyle = sandBlend;
-            ctx.fillRect(1600, canvas.height - 40, 100, 40);
-            let blend = ctx.createLinearGradient(1700, 60, 1850, 60);
-            blend.addColorStop(0, "rgba(139, 195, 74, 0)"); 
-            blend.addColorStop(1, "rgba(139, 195, 74, 1)"); 
-            ctx.fillStyle = blend;
-            ctx.fillRect(1700, 60, 150, canvas.height - 60);
-            ctx.fillStyle = "#8bc34a"; 
-            ctx.fillRect(1850, 60, this.worldWidth - 1850, canvas.height - 60);
-            this.sanctuaryFlora.forEach(f => {
-                let sway = Math.sin(this.frames * 0.05 + f.x) * 2;
-                ctx.save();
-                ctx.translate(f.x + sway, f.y);
-                if (f.type === 'rose') {
-                    ctx.fillStyle = '#e91e63'; ctx.beginPath(); ctx.arc(0, 0, 4*f.s, 0, Math.PI*2); ctx.fill();
-                    ctx.fillStyle = '#fce4ec'; ctx.beginPath(); ctx.arc(0, 0, 1.5*f.s, 0, Math.PI*2); ctx.fill();
-                } else if (f.type === 'sunflower') {
-                    ctx.fillStyle = '#ffeb3b'; 
-                    for(let i=0; i<5; i++){
-                        ctx.beginPath(); ctx.ellipse(Math.cos(i)*4*f.s, Math.sin(i)*4*f.s, 3*f.s, 2*f.s, i, 0, Math.PI*2); ctx.fill();
+    // =========================================
+    // PROJECTILES, POOLS, LOOT, EFFECTS
+    // =========================================
+    updateProjectiles() {
+        const p = this.player;
+        for (const pr of this.projectiles) {
+            pr.update();
+            let boom = pr.life <= 0;
+            if (!pr.reflected && p.iFrames <= 0 && rectHit({ x: pr.x - 5, y: pr.y - 5, w: 10, h: 10 }, { x: p.x + 10, y: p.y + 6, w: 20, h: 32 })) boom = true;
+            if (!boom) {
+                for (const e of this.enemies) {
+                    if (e.dead || e.spawnTimer > 0 || (!pr.reflected && e === pr.owner)) continue;
+                    if (rectHit({ x: pr.x - 5, y: pr.y - 5, w: 10, h: 10 }, { x: e.x + 6, y: e.y + 4, w: e.w - 12, h: e.h - 4 })) { boom = true; break; }
+                }
+            }
+            if (pr.y < FEET_MIN - 60 || pr.y > H + 20) boom = true;
+            if (!boom) continue;
+            pr.dead = true;
+            this.burst(pr.x, pr.y, pr.reflected ? '#7ff3ff' : '#c6e03a', 14, { speed: 4 });
+            sfx.sfxExplode();
+            if (!pr.reflected) this.pools.push(new Pool(pr.x, clamp(pr.y + 24, FEET_MIN, FEET_MAX), 'acid', 200));
+            if (!pr.reflected && dist(fx(p), p.y + 22, pr.x, pr.y) < 42) this.damagePlayer(ENEMY.spitter.dmg * this.cfg('zDamage', 1), { x: pr.x, w: 0 }, ENEMY.spitter.keg);
+            for (const e of this.enemies) {
+                if (e.dead || e.spawnTimer > 0) continue;
+                if (dist(fx(e), e.y + e.h / 2, pr.x, pr.y) < 50) {
+                    if (pr.reflected) this.applyHit(e, 60 * this.kegareMult(), pr.vx > 0 ? 1 : -1, 10, { source: 'reflect' });
+                    else if (e !== pr.owner) {
+                        e.hp -= 15; e.hitTimer = 5;
+                        this.text(fx(e), e.y, '-15', '#c6e03a', 14);
+                        if (pr.owner && !pr.owner.dead && e.type !== 'boar' && !e.isBoss) { e.grudge = pr.owner; e.grudgeTimer = 300; }
+                        if (e.hp <= 0) this.killEnemy(e, pr.vx > 0 ? 1 : -1, 'hit');
                     }
-                    ctx.fillStyle = '#3e2723'; ctx.beginPath(); ctx.arc(0, 0, 3*f.s, 0, Math.PI*2); ctx.fill();
-                } else if (f.type === 'bluebell') {
-                    ctx.fillStyle = '#42a5f5'; ctx.beginPath(); ctx.arc(0, 0, 3*f.s, 0, Math.PI*2); ctx.fill();
-                    ctx.fillStyle = '#1e88e5'; ctx.beginPath(); ctx.arc(0, 2*f.s, 3*f.s, 0, Math.PI*2); ctx.fill();
-                } else if (f.type === 'lily') {
-                    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(0, 0, 4*f.s, 0, Math.PI*2); ctx.fill();
-                    ctx.fillStyle = '#ffeb3b'; ctx.beginPath(); ctx.arc(0, 0, 1.5*f.s, 0, Math.PI*2); ctx.fill();
-                } else {
-                    ctx.fillStyle = '#33691e'; ctx.beginPath(); ctx.ellipse(0, 0, 10*f.s, 6*f.s, 0, 0, Math.PI*2); ctx.fill();
-                    ctx.fillStyle = '#9ccc65'; ctx.beginPath(); ctx.ellipse(-2*f.s, -2*f.s, 6*f.s, 4*f.s, 0, 0, Math.PI*2); ctx.fill();
-                }
-                ctx.restore();
-            });
-            this.mounds.forEach(m => m.draw(ctx, this.frames));
-            ctx.fillStyle = "#1b5e20"; 
-            ctx.fillRect(0, 60, 1700, 15);
-            ctx.fillStyle = "#2e7d32"; 
-            for(let i=0; i<1700; i+=40) {
-                ctx.beginPath(); ctx.ellipse(i, 70, 30, 20, 0, 0, Math.PI*2); ctx.fill();
-            }
-            
-            for(let i=0; i<1700; i+=35) this.drawTree(ctx, i, 95, 1.2);
-            for(let i=1750; i<=this.worldWidth; i+=40) {
-                this.drawTree(ctx, i, 95, 1.2); 
-            }
-            this.scenery.forEach(s => {
-                if (s.x > 1700) return;
-                if(s.type === 'grass') { ctx.fillStyle = s.variant === 1 ? '#4caf50' : '#8bc34a'; ctx.globalAlpha = 0.3; ctx.fillRect(s.x, s.y, 4, 4); ctx.fillRect(s.x + 4, s.y - 4, 4, 4); ctx.globalAlpha = 1.0; } 
-                else if (s.type === 'rock') { ctx.fillStyle = s.variant === 1 ? '#555' : '#777'; ctx.beginPath(); ctx.ellipse(s.x, s.y, s.r * 1.5, s.r, 0, 0, Math.PI*2); ctx.fill(); }
-            });
-            ctx.fillStyle = "rgba(0, 0, 0, 0.15)"; ctx.beginPath(); ctx.ellipse(this.dojo.x + 30, this.dojo.y + 25, 80, 40, 0, 0, Math.PI*2); ctx.fill(); 
-            if (this.isSiege && this.dojo.hp > 0 && ['PLAYING', 'TUTORIAL'].includes(this.state)) {
-                ctx.save(); ctx.globalAlpha = 0.15 + Math.sin(this.frames * 0.1) * 0.05; ctx.fillStyle = '#ffcc00';
-                ctx.beginPath(); ctx.ellipse(this.dojo.x + 30, this.dojo.y + 20, 150, 75, 0, 0, Math.PI*2); ctx.fill(); ctx.restore();
-            }
-            ctx.fillStyle = "rgba(0,0,0,0.4)"; ctx.fillRect(this.dojo.x + 8, this.dojo.y + this.dojo.h - 5, 44, 10);
-            ctx.drawImage(sprDojo, this.dojo.x, this.dojo.y);
-            
-            if (this.dojo.hp < this.dojo.maxHp * 0.5) {
-                ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(this.dojo.x+20, this.dojo.y+15); ctx.lineTo(this.dojo.x+25, this.dojo.y+25); ctx.lineTo(this.dojo.x+15, this.dojo.y+35); ctx.stroke();
-                if (this.dojo.hp < this.dojo.maxHp * 0.25) { ctx.beginPath(); ctx.moveTo(this.dojo.x+40, this.dojo.y+10); ctx.lineTo(this.dojo.x+35, this.dojo.y+20); ctx.lineTo(this.dojo.x+45, this.dojo.y+30); ctx.stroke(); if(Math.random()<0.1) this.particles.push(new Particle(this.dojo.x+30, this.dojo.y+20, '#ff5500')); }
-            }
-            if (this.isSiege && !this.peacefulNight && this.dojo.hp > 0 && this.state !== 'TUTORIAL') {
-                ctx.fillStyle = "#222"; ctx.fillRect(this.dojo.x, this.dojo.y - 15, 60, 6); ctx.fillStyle = "#ffcc00"; ctx.fillRect(this.dojo.x, this.dojo.y - 15, (this.dojo.hp/this.dojo.maxHp)*60, 6); ctx.strokeStyle = "#000"; ctx.strokeRect(this.dojo.x, this.dojo.y - 15, 60, 6);
-            }
-        } 
-        else if (this.currentRoom === 'FOREST') {
-            ctx.fillStyle = "#1b330c"; 
-            ctx.fillRect(0, 60, this.worldWidth, canvas.height - 60);
-            
-            ctx.save();
-            ctx.beginPath();
-            this.scenery.forEach(s => {
-                if(s.type === 'grass') { ctx.fillStyle = s.variant === 1 ? '#4caf50' : '#8bc34a'; ctx.globalAlpha = 0.3; ctx.fillRect(s.x, s.y, 4, 4); ctx.fillRect(s.x + 4, s.y - 4, 4, 4); ctx.globalAlpha = 1.0; } 
-                else if (s.type === 'rock') { ctx.fillStyle = s.variant === 1 ? '#555' : '#777'; ctx.beginPath(); ctx.ellipse(s.x, s.y, s.r * 1.5, s.r, 0, 0, Math.PI*2); ctx.fill(); }
-            });
-            ctx.restore();
-
-            this.forestTrees.forEach(t => { if(t.y <= this.player.y + 35) this.drawTree(ctx, t.x, t.y, t.s); });
-            
-            ctx.fillStyle = "rgba(0, 0, 0, 0.15)"; 
-            ctx.fillRect(0, 60, this.worldWidth, canvas.height); 
-        }
-        else if (this.currentRoom === 'RIVER') {
-            ctx.fillStyle = "#e6c280"; 
-            ctx.fillRect(0, 60, this.worldWidth, 140);
-            ctx.fillStyle = "#1e88e5"; 
-            ctx.fillRect(0, 200, this.worldWidth, canvas.height - 200);
-            
-            ctx.strokeStyle = "rgba(255,255,255,0.3)"; ctx.lineWidth = 2;
-            for(let y=220; y<canvas.height; y+=40) {
-                for(let x=0; x<this.worldWidth; x+=100) {
-                    let offset = Math.sin((this.frames * 0.05 + x + y)*0.02)*15;
-                    ctx.beginPath(); ctx.moveTo(x + offset, y); ctx.lineTo(x + 40 + offset, y); ctx.stroke();
                 }
             }
-            if (this.player.y > 180) {
-                ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
-                ctx.beginPath(); 
-                ctx.ellipse(this.player.x + 20, this.player.y + 35, 15 + Math.sin(this.frames*0.1)*5, 6, 0, 0, Math.PI*2); 
-                ctx.fill();
+        }
+        this.projectiles = this.projectiles.filter(pr => !pr.dead);
+    }
+
+    updatePools() {
+        const p = this.player;
+        for (const pl of this.pools) {
+            pl.update();
+            if (pl.active && p.iFrames <= 0 && pl.contains(fx(p), fy(p) - 4)) {
+                const dmg = pl.kind === 'erupt' ? 20 : 10;
+                if (this.damagePlayer(dmg * (pl.kind === 'acid' ? this.cfg('zDamage', 1) : 1), null, pl.kind === 'lava' ? 0 : 0.02)) p.iFrames = 30;
             }
         }
-        this.decals.forEach(d => { if(d.room === this.currentRoom) d.draw(ctx); });
-        this.damagePools.forEach(dp => { if(dp.room === this.currentRoom) dp.draw(ctx, this.frames); });
-        
-        this.drawShadow(this.player.x, this.player.y, 40);
-        
-        // BUG FIX: Separate shadow drawing from main entity loop to ensure all active entities render properly
-        this.enemies.forEach(z => { 
-            if(z.room === this.currentRoom && !z.burning && z.type !== 'fish') {
-                this.drawShadow(z.x, z.y, z.w, z.h); 
-            }
-        });
+        this.pools = this.pools.filter(pl => pl.life > 0);
+    }
 
-        if(this.currentRoom === 'HUB') {
-            ctx.drawImage(sprDummy, this.dummy.x, this.dummy.y);
-        }
-        
-        // DRAW ORBS AND LOOT
-        this.loot.forEach(item => { 
-            if(item.room === this.currentRoom) {
-                if (item.type.startsWith('orb_')) {
-                    let oColor = item.type === 'orb_momentum' ? '#00e5ff' : '#ff1744';
-                    ctx.save();
-                    ctx.shadowBlur = 15; ctx.shadowColor = oColor;
-                    ctx.fillStyle = oColor;
-                    let floatY = Math.sin(this.frames * 0.1) * 5;
-                    ctx.beginPath(); ctx.arc(item.x + 15, item.y + 15 + floatY, 12, 0, Math.PI*2); ctx.fill();
-                    ctx.fillStyle = '#fff';
-                    ctx.beginPath(); ctx.arc(item.x + 11, item.y + 11 + floatY, 4, 0, Math.PI*2); ctx.fill();
-                    ctx.restore();
-                } else {
-                    item.draw(ctx);
-                }
-            } 
-        });
-
-        this.corpses.forEach(c => { if(c.room === this.currentRoom) c.draw(ctx, this.frames, this.gameMode, UI.endlessConfig.bossSize); });
-        
-        // BOSS AURAS AND ENEMY RENDERING
-        this.enemies.forEach(z => { 
-            if(z.room === this.currentRoom) {
-                if (z.isAlpha || z.isBrood) {
-                    ctx.save();
-                    ctx.shadowBlur = 20; ctx.shadowColor = z.isAlpha ? '#ff1744' : '#aa00ff';
-                    z.draw(ctx, this.frames, this.gameMode, UI.endlessConfig.bossSize);
-                    ctx.restore();
-                } else {
-                    z.draw(ctx, this.frames, this.gameMode, UI.endlessConfig.bossSize);
+    updateLoot() {
+        const p = this.player;
+        const px = fx(p), py = p.y + 28;
+        for (const l of this.loot) {
+            l.update();
+            if (l.age < 20) continue;
+            const d = dist(px, py, l.x, l.y);
+            if (d < 80) { l.x += (px - l.x) / d * 5; l.y += (py - l.y) / d * 5; }
+            if (d < 20) {
+                l.taken = true;
+                if (l.type === 'meat') { p.food++; this.text(px, p.y - 6, '+1 meat', '#ffd77a', 14); sfx.sfxPickup(); }
+                else if (l.type === 'bandage') {
+                    const h = Math.min(p.maxHp - p.hp, Math.round(p.maxHp * 0.25));
+                    p.hp += h; this.text(px, p.y - 6, `+${h}`, '#7ddf64', 16); sfx.sfxPickup();
+                } else if (l.type === 'essence') {
+                    p.essence++; this.text(px, p.y - 6, '+1 essence', '#d6b4f0', 14); sfx.sfxEssence(); this.hint('essence');
+                } else if (l.type === 'core') {
+                    p.maxHp += 30; p.hp = p.maxHp; p.essence += 2;
+                    this.text(px, p.y - 30, '+30 max HP, +2 essence', '#bff4ff', 18);
+                    sfx.sfxLevelUp(); this.cureFlash = 25;
                 }
             }
-        });
+        }
+        this.loot = this.loot.filter(l => !l.taken);
+    }
 
-        this.projectiles.forEach(p => { if(p.room === this.currentRoom) p.draw(ctx); });
-        
-        if (['PLAYING', 'TUTORIAL', 'SUNRISE'].includes(this.state)) {
-            if (this.player.mutationGlow > 0) {
-                ctx.save(); ctx.shadowBlur = 20 + Math.sin(this.frames * 0.2) * 10; ctx.shadowColor = '#d32f2f';
-                ctx.globalAlpha = (this.player.mutationGlow / 180) * (0.5 + Math.sin(this.frames * 0.2) * 0.3);
-                ctx.fillStyle = '#d32f2f'; ctx.beginPath(); ctx.arc(this.player.x + 20, this.player.y + 20, 30, 0, Math.PI * 2); ctx.fill(); ctx.restore();
-            }
-            this.player.draw(ctx, this.frames, this.gameMode);
-            
-            if (this.player.demonRushTimer > 0) {
-                ctx.save();
-                ctx.fillStyle = '#ff0000';
-                ctx.shadowBlur = 8;
-                ctx.shadowColor = '#ff0000';
-                let pX = this.player.x;
-                let pY = this.player.y;
-                if (this.player.facingRight) {
-                    ctx.fillRect(pX + 24, pY + 8, 3, 2); 
-                    ctx.fillRect(pX + 30, pY + 8, 3, 2); 
-                } else {
-                    ctx.fillRect(pX + 7, pY + 8, 3, 2);  
-                    ctx.fillRect(pX + 13, pY + 8, 3, 2); 
-                }
-                ctx.restore();
-            }
-        }
-        
-        if (this.currentRoom === 'FOREST') {
-            ctx.save();
-            ctx.beginPath();
-            this.forestTrees.forEach(t => { if(t.y > this.player.y + 35) this.drawTree(ctx, t.x, t.y, t.s); });
-            ctx.fillStyle = "rgba(10, 30, 10, 0.4)";
-            ctx.fillRect(0, 60, this.worldWidth, canvas.height - 60);
-            ctx.restore();
-        }
-        
-        if (this.currentRoom === 'HUB') {
-            for(let i=1750; i<=this.worldWidth; i+=40) {
-                this.drawTree(ctx, i, canvas.height + 30, 1.2); 
-            }
-        }
-        this.particles.forEach(p => { if(p.room === this.currentRoom) p.draw(ctx); });
-        
-        if (['PLAYING', 'TUTORIAL', 'SUNRISE'].includes(this.state)) {
-            let burnRatio = Math.min(1, (this.player.sanctuaryBurn || 0) / 420);
-            let hpR = Math.floor(239 + (85 - 239) * burnRatio);
-            let hpG = Math.floor(83 + (255 - 83) * burnRatio);
-            let hpB = Math.floor(80 + (85 - 80) * burnRatio);
-            let hpColor = `rgb(${hpR}, ${hpG}, ${hpB})`;
+    updateEffects() {
+        for (const a of [this.particles, this.texts, this.decals, this.corpses, this.effects]) for (const o of a) o.update();
+        this.particles = this.particles.filter(o => o.life > 0);
+        if (this.particles.length > 500) this.particles.splice(0, this.particles.length - 500);
+        this.texts = this.texts.filter(o => o.life > 0);
+        this.decals = this.decals.filter(o => o.life > 0);
+        this.corpses = this.corpses.filter(o => o.life > 0);
+        this.effects = this.effects.filter(o => o.life > 0);
+    }
 
-            let drawFloatingBar = (yOff, val, max, color, glow = 0) => { 
-                ctx.save();
-                ctx.beginPath();
-                ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(this.player.x, this.player.y - yOff, 40, 6); 
-                
-                if (glow > 0) {
-                    ctx.shadowBlur = 10 * glow;
-                    ctx.shadowColor = color;
-                }
+    // =========================================
+    // ENDING
+    // =========================================
+    checkEnd() {
+        if (!['PLAYING', 'SUNRISE'].includes(this.state)) return;
+        const p = this.player;
+        if (this.script) {
+            // nobody dies in the prologue
+            p.hp = Math.max(1, p.hp);
+            p.infection = Math.min(2.9, p.infection);
+            this.dojo.hp = Math.max(this.dojo.maxHp * 0.3, this.dojo.hp);
+            return;
+        }
+        let reason = null;
+        if (p.infection >= 3) reason = 'turned';
+        else if (p.hp <= 0) reason = 'died';
+        else if (this.dojo.hp <= 0) reason = 'dojo';
+        if (!reason) return;
+        this.endReason = reason;
+        this.state = 'DYING';
+        this.deathTimer = 90;
+        this.saveScore();
+        UI.hideTouchUI();
+        sfx.sfxFrustratedGroan();
+        if (reason === 'turned') this.burst(fx(p), p.y + 20, '#7b3fa0', 60, { speed: 6 });
+        if (reason === 'dojo') { this.burst(DOJO.x + DOJO.w / 2, DOJO.y - 40, '#ff8a3c', 80, { speed: 7 }); sfx.sfxExplode(); }
+    }
 
-                ctx.fillStyle = color; ctx.fillRect(this.player.x, this.player.y - yOff, Math.max(0, (val/max)*40), 6); 
-                
-                ctx.shadowBlur = 0;
-                ctx.strokeStyle = "#000"; ctx.strokeRect(this.player.x, this.player.y - yOff, 40, 6); 
-                ctx.restore();
-            }
-            drawFloatingBar(10, this.player.fatigue, this.player.maxFatigue, "#ff5500"); 
-            drawFloatingBar(18, this.player.stamina, this.player.maxStamina, "#3399ff"); 
-            drawFloatingBar(26, this.player.hp, this.player.maxHp, hpColor, burnRatio);
-            if (this.activePrompt.text && this.player.stunTimer <= 0) {
-                ctx.fillStyle = this.activePrompt.text === 'Infection too high!' ? '#ff1744' : '#fff';
-                ctx.font = "bold 14px Courier"; ctx.textAlign = "center";
-                ctx.fillText(this.activePrompt.text, this.player.x + 20, this.player.y - 45);
-            }
-        }
-        
-        this.floatTexts.forEach(t => { if(t.room === this.currentRoom) t.draw(ctx); });
-        
-        ctx.restore(); 
-        this.drawLighting();
-        let infProgress = this.player.infection % 1;
-        let vigAlpha = 0;
-        if (this.state === 'PLAYING') {
-            if (this.player.stunTimer > 0) {
-                vigAlpha = (this.player.stunTimer / 90) * 0.8; 
-            } else if (this.player.infection < 3 && infProgress > 0.6) {
-                vigAlpha = ((infProgress - 0.6) / 0.4) * 0.8; 
-            }
-        }
-        if (vigAlpha > 0) {
-            ctx.save();
-            ctx.beginPath();
-            ctx.strokeStyle = `rgba(106, 27, 154, ${vigAlpha})`;
-            ctx.lineWidth = 15;
-            ctx.shadowColor = `rgba(106, 27, 154, ${vigAlpha})`;
-            ctx.shadowBlur = 10;
-            ctx.strokeRect(7.5, 7.5, canvas.width - 15, canvas.height - 15);
-            ctx.restore();
-        }
-
-        if (this.damageFlash > 0) {
-            let flashGrad = ctx.createRadialGradient(canvas.width/2, canvas.height/2, canvas.height/3, canvas.width/2, canvas.height/2, canvas.width/1.2);
-            flashGrad.addColorStop(0, 'rgba(255, 0, 0, 0)'); flashGrad.addColorStop(1, `rgba(255, 0, 0, ${this.damageFlash / 30})`);
-            ctx.fillStyle = flashGrad; ctx.fillRect(0, 0, canvas.width, canvas.height);
-        }
-        
-        if (this.player.stunTimer > 0) {
-            ctx.fillStyle = `rgba(106, 27, 154, ${Math.sin(this.frames * 0.2) * 0.4})`;
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-        }
-        
-        if (this.paused && ['PLAYING', 'TUTORIAL', 'SUNRISE'].includes(this.state)) { ctx.fillStyle = "rgba(0, 0, 0, 0.6)"; ctx.fillRect(0, 0, canvas.width, canvas.height); }
-        if (this.state === 'TUTORIAL') {
-            if (this.tutPhase <= 4) {
-                ctx.fillStyle = "rgba(0,0,0,1)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.fillStyle = "#ffb300"; ctx.font = "bold 20px Courier"; ctx.textAlign = "center";
-                if (this.tutPhase !== 2) ctx.fillText(this.tutText, canvas.width/2, canvas.height/2);
-                else if (this.tutPhase === 2 && this.tutTimer < 179) ctx.fillText(this.tutText, canvas.width/2, canvas.height/2);
-            } else {
-                ctx.fillStyle = "rgba(0,0,0,0.7)"; ctx.fillRect(0, canvas.height - 80, canvas.width, 80);
-                ctx.fillStyle = "#ffcc00"; ctx.font = "bold 22px Courier"; ctx.textAlign = "center";
-                ctx.fillText(this.tutText, canvas.width/2, canvas.height - 35);
-            }
-        }
-        
-        if (this.state === 'EPILOGUE') {
-            ctx.fillStyle = "rgba(0,0,0,0.95)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = "#ffb300"; ctx.font = "bold 24px Courier"; ctx.textAlign = "center";
-            ctx.fillText(this.epiLines[this.epiPhase], canvas.width/2, canvas.height/2);
-        }
-        if (this.announceTimer > 0 && this.state !== 'TUTORIAL') { 
-            let alpha = this.announceTimer > 60 ? 1 : this.announceTimer / 60; 
-            ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`; ctx.font = "bold 60px Courier"; ctx.textAlign = "center"; 
-            ctx.fillText(this.announceText, canvas.width/2, canvas.height/4); 
-            
-            if (this.subAnnounceText) {
-                ctx.fillStyle = `rgba(211, 47, 47, ${alpha})`; ctx.font = "bold 24px Courier"; ctx.fillText(this.subAnnounceText, canvas.width/2, canvas.height/4 + 50); 
-            }
-        }
-        if (this.sleepFade > 0) { let alpha = this.sleepFade > 30 ? (60 - this.sleepFade)/30 : this.sleepFade/30; ctx.fillStyle = `rgba(0,0,0,${alpha})`; ctx.fillRect(0,0,canvas.width,canvas.height); }
-        if (['PLAYING', 'SUNRISE'].includes(this.state) || (this.state === 'TUTORIAL' && this.tutPhase > 4)) {
-            ctx.fillStyle = "#111"; ctx.fillRect(0, 0, canvas.width, 60); 
-            ctx.drawImage(sprMeat, 20, 15); ctx.fillStyle = "#fff"; ctx.font = "bold 20px Courier"; ctx.textAlign = "left"; ctx.fillText(`MEAT: ${this.food}`, 55, 35); 
-            
-            ctx.fillStyle = '#d32f2f'; ctx.beginPath(); ctx.arc(180, 28, 8, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = '#ff5252'; ctx.beginPath(); ctx.arc(177, 25, 3, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = "#fff"; ctx.fillText(`x${this.player.demonBlood}`, 195, 35);
-            if (this.state !== 'TUTORIAL') { 
-                ctx.textAlign = "right"; 
-                ctx.fillText(`TRAIN: ${this.dummy.hits}/${this.dummy.hitsNeeded}`, canvas.width - 20, 35); 
-                for(let i=0; i<3; i++) {
-                    this.drawSkullIcon(ctx, canvas.width - 240 + (i*25), 20, this.player.infection >= i+1);
-                }
-            }
-            
-            let trackW = 400; let trackX = canvas.width/2 - trackW/2; let trackY = 40;
-            ctx.fillStyle = "#333"; ctx.fillRect(trackX, trackY - 2, trackW, 4);
-            let pct = 1 - (this.timeTimer / this.phaseDur);
-            if (this.state === 'SUNRISE') pct = 1;
-            ctx.fillStyle = this.isDay || this.state === 'SUNRISE' ? "#ffeb3b" : "#90caf9"; ctx.fillRect(trackX, trackY - 2, trackW * pct, 4);
-            
-            let icon = this.isDay || this.state === 'SUNRISE' ? sprSun : (this.isSiege && !this.peacefulNight ? sprBloodMoon : sprMoon); 
-            ctx.drawImage(icon, trackX + (trackW * pct) - 12, trackY - 12);
-            
-            ctx.font = "bold 20px Courier"; ctx.fillStyle = this.isSiege && !this.peacefulNight ? "#ef5350" : "#fff"; ctx.textAlign = "center";
-            let phaseText = (this.isSiege && !this.peacefulNight ? "🩸 SIEGE " : (this.isDay || this.state === 'SUNRISE' ? "DAY " : "NIGHT ")) + this.dayCount;
-            if (this.state === 'TUTORIAL') phaseText = "PROLOGUE";
-            if (this.gameMode === 'ENDLESS') phaseText += " (ENDLESS)";
-            ctx.fillText(phaseText, canvas.width/2, 22);
-
-            if (this.combo > 1 && ['PLAYING', 'TUTORIAL'].includes(this.state)) {
-                ctx.save();
-                let cX = 40; 
-                let cY = canvas.height / 2;
-                let cSize = 24 + Math.min(20, this.combo); 
-                let cColor = "#fff";
-                let shakeX = 0, shakeY = 0;
-                
-                if (this.combo >= 25) {
-                    cColor = "#ff1744"; 
-                    cSize += Math.sin(this.frames * 0.5) * 5; 
-                    shakeX = (Math.random() - 0.5) * 6;
-                    shakeY = (Math.random() - 0.5) * 6;
-                } else if (this.combo >= 10) {
-                    cColor = "#ffea00"; 
-                    cSize += Math.sin(this.frames * 0.2) * 2;
-                    shakeX = (Math.random() - 0.5) * 2;
-                    shakeY = (Math.random() - 0.5) * 2;
-                }
-
-                let cAlpha = this.comboTimer < 60 ? this.comboTimer / 60 : 1.0;
-                ctx.globalAlpha = cAlpha;
-
-                ctx.translate(cX + shakeX, cY + shakeY);
-                ctx.rotate(-0.1); 
-
-                ctx.fillStyle = cColor;
-                ctx.font = `900 italic ${cSize}px Courier`;
-                ctx.textAlign = "left";
-                
-                ctx.lineWidth = 4;
-                ctx.strokeStyle = "#000";
-                ctx.strokeText(`${this.combo}x`, 0, 0);
-                ctx.fillText(`${this.combo}x`, 0, 0);
-                
-                ctx.font = `bold ${Math.max(14, cSize/3)}px Courier`;
-                ctx.strokeText("HITS", 0, cSize/2);
-                ctx.fillText("HITS", 0, cSize/2);
-
-                ctx.restore();
-            }
-        }
+    finishGameOver() {
+        this.state = 'GAMEOVER';
+        this.readyAt = performance.now() + 700;
+        UI.showGameOver(this.endReason, this.mode, this.dayCount, this.kills, Object.values(this.player.tech).reduce((a, b) => a + b, 0));
     }
 }
 
-const gameEngine = new Game();
-const FPS = 60; const frameDelay = 1000 / FPS; let lastFrameTime = performance.now();
-function gameLoop(currentTime) {
-    requestAnimationFrame(gameLoop); 
-    const deltaTime = currentTime - lastFrameTime;
-    if (deltaTime >= frameDelay) { 
-        lastFrameTime = currentTime - (deltaTime % frameDelay); 
-        if (!gameEngine.paused) gameEngine.update(); 
-        gameEngine.draw(); 
+// =========================================
+// LOOP (fixed 60 updates per second)
+// =========================================
+const game = new Game();
+window.__lastDojo = game; // handy for debugging in the browser console
+const STEP = 1000 / 60;
+let last = performance.now(), acc = 0;
+function loop(now) {
+    requestAnimationFrame(loop);
+    acc += Math.min(250, now - last);
+    last = now;
+    let stepped = false;
+    while (acc >= STEP) {
+        // skipping a cutscene fast-forwards it (silently) instead of jumping
+        const reps = game.script && game.script.skipping ? 16 : 1;
+        sfx.suppress = reps > 1;
+        for (let r = 0; r < reps; r++) if (!game.paused) game.update();
+        sfx.suppress = false;
+        acc -= STEP; stepped = true;
     }
+    // only redraw when the simulation advanced (avoids double work on 120Hz screens)
+    if (stepped) game.renderer.draw();
 }
-requestAnimationFrame(gameLoop);
+requestAnimationFrame(loop);
